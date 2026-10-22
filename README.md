@@ -1,6 +1,6 @@
 # RUANG KERJA — portal pekerjaan pribadi
 
-Portal responsif untuk koordinasi tim: dashboard, tugas dengan tanggal dan jam deadline, prioritas, komentar, approval/revisi, lampiran privat, panel Content bersama (judul, caption, tanggal/jam, upload/download), riwayat aktivitas, dan backup terenkripsi.
+Portal responsif untuk koordinasi tim: tugas dengan tanggal/jam deadline dan status Aktif/Terlambat, tombol Sudah beres, alur approval/revisi sampai Done, beberapa lampiran file pekerjaan dan file contoh opsional, panel Content dengan beberapa file dalam satu item, Copy caption, format Reels/Feed/Carousel, hapus file, riwayat aktivitas, backup terenkripsi, serta notifikasi Telegram melalui Supabase Edge Function.
 
 ## Status project
 
@@ -59,11 +59,31 @@ Untuk mengaktifkan login tanpa email, buka Supabase → Authentication → Provi
 Gunakan akun dummy dan file non-rahasia. Pastikan:
 - login memakai kode permanen berhasil berulang kali;
 - pengguna yang memakai kode memiliki hak yang sama untuk tugas dan approval;
-- deadline menampilkan tanggal dan jam;
-- panel Content menyimpan judul, caption, tanggal, jam, dan file;
+- tugas sebelum deadline menampilkan status Aktif, dan tugas yang lewat deadline ditandai Terlambat;
+- klik Sudah beres pada tugas atau content membuatnya muncul di panel Approval & revisi;
+- keputusan Approval mengubah status item menjadi Done, sedangkan Revisi menyimpan deskripsi perubahan;
+- tugas menerima beberapa file pekerjaan dan file contoh opsional; file/content dapat dihapus;
+- panel Content mendukung beberapa lampiran, Copy caption, pilihan Reels/Feed/Carousel, tanggal/jam, dan approval;
 - semua pemegang kode bisa mengunduh content dan lampiran tim;
+- notifikasi Telegram masuk saat tugas/content baru dibuat atau status berubah setelah rahasia Telegram disetel;
 - orang tanpa sesi yang sah tidak dapat membaca atau mengunduh file;
 - backup terenkripsi dapat dibuat dan dipulihkan.
+
+## Notifikasi Telegram
+
+Edge Function `notify-telegram` sudah dibuat di Supabase. Agar notifikasi aktif, set dua rahasia ini pada project Supabase **Settings / Edge Functions → Secrets** (label halaman bisa berubah):
+
+- `TELEGRAM_BOT_TOKEN` — token bot yang dibuat melalui Telegram `@BotFather`.
+- `TELEGRAM_CHAT_ID` — ID chat pribadi atau grup tujuan notifikasi.
+
+Langkah singkat:
+1. Di Telegram, chat `@BotFather`, gunakan `/newbot`, lalu simpan token yang diberikannya secara privat.
+2. Buka chat dengan bot baru itu dan kirim `/start`. Untuk notifikasi grup, tambahkan bot ke grup lalu kirim pesan di grup.
+3. Ambil `chat.id` dengan membuka `https://api.telegram.org/bot<TOKEN_ANDA>/getUpdates` di browser privat. Jangan membagikan URL itu karena berisi token. Untuk grup, ID biasanya negatif.
+4. Di Supabase Dashboard project `ruang-kerja-rey`, buka halaman Edge Function Secrets dan tambahkan kedua nama secret beserta nilainya. Jangan masukkan token ke `app.js`, `config.js`, atau repository GitHub.
+5. Sesudah tersimpan, buat sebuah tugas uji atau upload content uji. Notifikasi berisi nama item, status, detail, dan waktu WIB.
+
+Notifikasi dipicu oleh pembuatan tugas/content, perubahan status, upload lampiran tugas, serta pengiriman revisi/approval. Jika secret belum ada atau salah, aplikasi tetap menyimpan data; notifikasi tidak terkirim sampai rahasia diperbaiki. Dokumentasi resmi: [Supabase Edge Function secrets](https://supabase.com/docs/guides/functions/secrets).
 
 ## Backup
 
