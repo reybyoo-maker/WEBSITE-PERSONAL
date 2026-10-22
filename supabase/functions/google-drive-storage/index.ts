@@ -200,8 +200,8 @@ async function listDriveReferences(admin: ReturnType<typeof createClient>) {
   for (const table of ["task_attachments", "content_assets"]) {
     let start = 0;
     while (true) {
-      const { data, error } = await admin.from(table).select("storage_parts")
-        .eq("storage_provider", "google_drive").range(start, start + 499);
+      const { data, error } = await admin.from(table).select("id,storage_parts")
+        .eq("storage_provider", "google_drive").order("id").range(start, start + 499);
       if (error) throw new Error("Metadata file tidak dapat diverifikasi.");
       for (const row of data || []) {
         if (Array.isArray(row.storage_parts)) {
@@ -216,8 +216,13 @@ async function listDriveReferences(admin: ReturnType<typeof createClient>) {
 }
 async function isDriveIdReferenced(admin: ReturnType<typeof createClient>, id: string) {
   if (!id || id.length > 300 || /[^\w-]/.test(id)) return false;
-  const ids = await listDriveReferences(admin);
-  return ids.has(id);
+  for (const table of ["task_attachments", "content_assets"]) {
+    const { data, error } = await admin.from(table).select("id")
+      .eq("storage_provider", "google_drive").contains("storage_parts", [id]).limit(1);
+    if (error) throw new Error("Metadata file tidak dapat diverifikasi.");
+    if (data && data.length) return true;
+  }
+  return false;
 }
 async function deleteDriveFile(accessToken: string, fileId: string) {
   const response = await fetch("https://www.googleapis.com/drive/v3/files/" + encodeURIComponent(fileId), {
@@ -303,6 +308,7 @@ async function scheduledCleanup(req: Request) {
     fetchExpiredRows(admin, "task_attachments", cutoff),
     fetchExpiredRows(admin, "content_assets", cutoff),
   ]);
+  await admin.from("google_drive_oauth_states").delete().lt("expires_at", new Date().toISOString());
   const expired = [
     ...attachments.map((row) => ({ ...row, _table: "task_attachments" as const })),
     ...content.map((row) => ({ ...row, _table: "content_assets" as const })),
@@ -466,12 +472,22 @@ Deno.serve(async (req: Request) => {
     if (action === "delete-objects") {
       if (!Array.isArray(payload.ids) || payload.ids.length > 500) return json(req, { error: "Daftar file untuk dihapus tidak valid." }, 400);
       const ids = [...new Set(payload.ids.map((value) => String(value || "")))];
+      if (ids.some((id) => !/^[\w-]{5,300}$/.test(id))) return json(req, { error: "Ada ID file yang tidak valid." }, 400);
+      const { accessToken, folderId } = await refreshAccessToken(auth.admin);
+      const referenced = await listDriveReferences(auth.admin);
       for (const id of ids) {
-        if (!/^[\w-]{5,300}$/.test(id) || !(await isDriveIdReferenced(auth.admin, id))) {
+        if (referenced.has(id)) continue;
+        // Allow rollback of a partially successful browser upload, but only for files
+        // created by this app account and owned by the current workspace user.
+        const metaResponse = await fetch("https://www.googleapis.com/drive/v3/files/" + encodeURIComponent(id) + "?fields=id,parents,appProperties", {
+          headers: { Authorization: "Bearer " + accessToken },
+        });
+        const meta = await metaResponse.json().catch(() => ({}));
+        if (!metaResponse.ok || meta.appProperties?.rk_owner !== auth.user.id ||
+            !Array.isArray(meta.parents) || !meta.parents.includes(folderId)) {
           return json(req, { error: "Penghapusan ditolak untuk file yang tidak tercatat." }, 403);
         }
       }
-      const { accessToken } = await refreshAccessToken(auth.admin);
       const deleted = await deleteDriveFiles(accessToken, ids);
       return json(req, { ok: true, deleted });
     }
