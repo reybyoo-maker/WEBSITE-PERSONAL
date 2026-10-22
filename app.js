@@ -1123,7 +1123,7 @@ async function restoreEncryptedBackup(file) {
       const uploaded = await uploadPrivateFile(item.task_id, restoredFile);
       if (attachmentPaths.has(uploaded.path)) continue;
       missingMetadata.push({
-        id: item.id, task_id: item.task_id, path: uploaded.path, storage_parts: uploaded.storage_parts, storage_provider: "backblaze",
+        id: item.id, task_id: item.task_id, path: uploaded.path, storage_parts: uploaded.storage_parts, storage_provider: uploaded.storage_provider || "backblaze",
         file_name: item.file_name, content_type: item.content_type || "application/octet-stream",
         size_bytes: restoredFile.size, uploaded_by: state.user.id, created_at: item.created_at,
         attachment_type: item.attachment_type || "work"
@@ -1149,7 +1149,7 @@ async function restoreEncryptedBackup(file) {
         caption: item.caption || "", scheduled_date: item.scheduled_date || null,
         scheduled_time: item.scheduled_time || null, content_format: item.content_format || "feed",
         status: item.status || "todo", revision_note: item.revision_note || "",
-        path: uploaded.path, storage_parts: uploaded.storage_parts, storage_provider: "backblaze", file_name: item.file_name,
+        path: uploaded.path, storage_parts: uploaded.storage_parts, storage_provider: uploaded.storage_provider || "backblaze", file_name: item.file_name,
         content_type: item.content_type || "application/octet-stream", size_bytes: restoredFile.size,
         uploaded_by: state.user.id, created_at: item.created_at
       });
