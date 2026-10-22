@@ -157,7 +157,7 @@ returns boolean
 language plpgsql
 security definer
 set search_path = ''
-as $
+as $$
 declare
   v_user_id uuid := (select auth.uid());
   v_normalized text;
@@ -193,7 +193,7 @@ begin
   on conflict (id) do update set role = 'manager';
   return true;
 end;
-$;
+$$;
 revoke all on function public.activate_access_code(text) from public, anon, authenticated;
 grant execute on function public.activate_access_code(text) to authenticated;
 
