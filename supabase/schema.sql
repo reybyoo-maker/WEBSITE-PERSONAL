@@ -16,10 +16,18 @@ create table private.access_invites (
 alter table private.access_invites enable row level security;
 revoke all on table private.access_invites from public, anon, authenticated;
 revoke all on table private.access_invites from anon, authenticated;
-insert into private.access_invites (code_hash, role) values
-  ('e6e69e64b4d57804c79269f789dc12d844d73a796b4528eb9ce65ecfa120fb05', 'member'),
-  ('7cd1c0e7763150dc0d25bb6efbae648283f65d563d9daea2e6d1ad2e49dc3162', 'manager')
-on conflict (code_hash) do nothing;
+-- Deprecated one-time invitation table is intentionally left empty.
+
+create table if not exists private.shared_access_codes (
+  code_hash text primary key,
+  enabled boolean not null default true,
+  created_at timestamptz not null default now()
+);
+alter table private.shared_access_codes enable row level security;
+revoke all on table private.shared_access_codes from public, anon, authenticated;
+insert into private.shared_access_codes (code_hash, enabled)
+values ('a81e6971ddccc89162cac77a91512c87a90fc822e45963907bab25617296ed6d', true)
+on conflict (code_hash) do update set enabled = true;
 
 create table public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
@@ -123,6 +131,9 @@ language plpgsql security definer
 set search_path = public
 as $$
 begin
+  if coalesce(new.is_anonymous, false) then
+    return new;
+  end if;
   insert into public.profiles (id, display_name, role)
   values (
     new.id,
@@ -137,6 +148,51 @@ drop trigger if exists create_profile_after_invited_signup on auth.users;
 create trigger create_profile_after_invited_signup
 after insert on auth.users
 for each row execute function public.create_profile_for_invited_user();
+
+create or replace function public.activate_access_code(p_code text)
+returns boolean
+language plpgsql
+security definer
+set search_path = ''
+as $
+declare
+  v_user_id uuid := (select auth.uid());
+  v_normalized text;
+  v_hash text;
+  v_valid boolean;
+begin
+  if v_user_id is null then
+    raise exception 'Sesi akses tidak tersedia. Coba masuk kembali.';
+  end if;
+
+  if not exists (
+    select 1 from auth.users u
+    where u.id = v_user_id and coalesce(u.is_anonymous, false)
+  ) then
+    raise exception 'Sesi bukan sesi kode akses.';
+  end if;
+
+  v_normalized := upper(regexp_replace(coalesce(p_code, ''), '\\s+', '', 'g'));
+  if length(v_normalized) < 20 or length(v_normalized) > 80 then
+    return false;
+  end if;
+  v_hash := encode(extensions.digest(convert_to(v_normalized, 'UTF8'), 'sha256'), 'hex');
+  select exists (
+    select 1 from private.shared_access_codes c
+    where c.code_hash = v_hash and c.enabled = true
+  ) into v_valid;
+  if not v_valid then
+    return false;
+  end if;
+
+  insert into public.profiles (id, display_name, role)
+  values (v_user_id, 'Pengguna Ruang Kerja', 'manager')
+  on conflict (id) do update set role = 'manager';
+  return true;
+end;
+$;
+revoke all on function public.activate_access_code(text) from public, anon, authenticated;
+grant execute on function public.activate_access_code(text) to authenticated;
 
 create table public.tasks (
   id uuid primary key default gen_random_uuid(),
@@ -442,13 +498,9 @@ create policy "ruang_kerja_storage_delete_own_uploads" on storage.objects
 for delete to authenticated
 using (
   bucket_id = 'ruang-kerja-files'
-  and split_part(name, '/', 2) = (select auth.uid())::text
   and public.is_team_member()
+  and public.current_user_role() = 'manager'
   and exists (
-    select 1 from public.tasks t
-    where t.id::text = split_part(name, '/', 1)
-      and (public.current_user_role() = 'manager'
-        or t.created_by = (select auth.uid())
-        or t.assigned_to = (select auth.uid()))
+    select 1 from public.tasks t where t.id::text = split_part(name, '/', 1)
   )
 );
