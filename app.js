@@ -602,7 +602,7 @@ async function uploadPrivateFile(taskId, file, onPart = () => {}) {
       const end = Math.min(start + STORAGE_CHUNK_SIZE, file.size);
       const partPath = rootPath + "/part-" + String(part + 1).padStart(4, "0");
       const contentType = file.type || "application/octet-stream";
-      const signed = await invokeBackblaze("presign-upload", { key: partPath, contentType });
+      const signed = await invokeBackblaze("presign-upload", { key: partPath, contentType, size: end - start });
       const response = await fetch(signed.url, {
         method: "PUT",
         headers: { "Content-Type": contentType },
