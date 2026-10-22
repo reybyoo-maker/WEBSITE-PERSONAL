@@ -19,14 +19,11 @@ Portal responsif untuk koordinasi tim: tugas dengan tanggal/jam deadline dan sta
 
 ## Batas file paket gratis
 
-Untuk Supabase Free, dokumentasi saat ini mencantumkan **1 GB total file storage** dan **maksimal 50 MB per file**. Batas upload global dan bucket pada project ini disetel 50 MiB. Penggunaan egress juga mempunyai kuota; periksa dashboard pemakaian supaya tidak terkena pembatasan.
+Supabase Free tetap memiliki kuota penyimpanan total dan batas ukuran objek fisik. Portal sekarang memecah file logis menjadi potongan privat masing-masing 20 MiB, sehingga aplikasi mendukung file hingga **800 MiB per lampiran** tanpa menaikkan batas 50 MiB per objek di bucket. Saat diunduh, potongan disatukan lagi di browser. **Ini bukan kapasitas tanpa batas**: kuota penyimpanan gratis total tetap terbatas (umumnya 1 GiB untuk Supabase Free), begitu juga kuota transfer/egress. Periksa pemakaian di Dashboard Supabase sebelum mengunggah banyak video atau file besar.
 
-Referensi resmi:
-- https://supabase.com/pricing
-- https://supabase.com/docs/guides/storage/uploads/file-limits
-- https://supabase.com/docs/guides/storage/buckets/fundamentals
+Bila ukuran file melampaui batas aplikasi, kompres atau pecah dokumen sesuai kebutuhan. Jangan menaikkan limit atau mengaktifkan paket berbayar tanpa memahami biaya. File disimpan pada bucket privat; potongan hanya bisa dibaca oleh anggota tim yang valid.
 
-Jika butuh lampiran lebih besar dari 50 MB, kompres atau pecah dokumen jika sesuai. Jangan menaikkan limit atau mengaktifkan plan berbayar tanpa memahami biaya.
+Dokumentasi: [Supabase Storage file limits](https://supabase.com/docs/guides/storage/uploads/file-limits) · [Supabase Storage buckets](https://supabase.com/docs/guides/storage/buckets/fundamentals)
 
 ## Jalankan website
 
@@ -50,9 +47,9 @@ GitHub Pages gratis untuk repository publik dan tidak membutuhkan kartu/billing 
 
 ### 3. Login kode permanen (tanpa email)
 
-Halaman login hanya meminta satu kode akses yang dapat digunakan berulang kali. Kode mentah tidak disimpan pada repository atau browser bundle; database menyimpan hash-nya di skema privat. Semua pengguna dengan kode valid mendapat role dan hak akses yang sama, termasuk tugas, approval, riwayat aktivitas, dan lampiran.
+Halaman login menerima salah satu dari dua kode akses permanen yang terdaftar di database privat. Keduanya membuka workspace yang sama dengan hak akses sama: **Kode 1 berwarna merah** dan **Kode 2 berwarna pink**. Sidebar dan daftar PIC menggunakan label kode, tanpa meminta atau menampilkan nama pribadi. Kode mentah tidak disimpan pada repository atau browser bundle; database hanya menyimpan hash. Jangan commit atau bagikan kode akses melalui kanal publik. Jika kode bocor, siapa pun yang memilikinya dapat masuk dengan hak akses penuh.
 
-Untuk mengaktifkan login tanpa email, buka Supabase → Authentication → Providers (atau Sign In / Providers) → aktifkan **Anonymous Sign-Ins**. Login anonim hanya membuat sesi sementara; pengguna tetap tidak memiliki akses data sampai kode permanen diverifikasi oleh fungsi database. Jangan bagikan kode lewat kanal publik. Jika kode bocor, siapa pun yang memilikinya dapat masuk dengan hak akses penuh.
+Untuk mengaktifkan login tanpa email, buka Supabase → Authentication → Providers (atau Sign In / Providers) → aktifkan **Anonymous Sign-Ins**. Login anonim hanya membuat sesi sementara; pengguna tetap tidak memiliki akses data sampai kode permanen diverifikasi oleh fungsi database.
 
 ### 4. Uji sebelum dipakai
 
@@ -62,8 +59,11 @@ Gunakan akun dummy dan file non-rahasia. Pastikan:
 - tugas sebelum deadline menampilkan status Aktif, dan tugas yang lewat deadline ditandai Terlambat;
 - klik Sudah beres pada tugas atau content membuatnya muncul di panel Approval & revisi;
 - keputusan Approval mengubah status item menjadi Done, sedangkan Revisi menyimpan deskripsi perubahan;
-- tugas menerima beberapa file pekerjaan dan file contoh opsional; file/content dapat dihapus;
+- tugas menerima beberapa file pekerjaan dan file contoh opsional; pilih file satu per satu, lalu kolom berikutnya muncul otomatis;
+- lampiran besar dipecah menjadi bagian privat dan dapat diunduh kembali; lakukan pengujian memakai file non-rahasia berukuran besar;
 - panel Content mendukung beberapa lampiran, Copy caption, pilihan Reels/Feed/Carousel, tanggal/jam, dan approval;
+- Kode 1 tampil merah dan Kode 2 tampil pink; keduanya bisa melihat, mengedit, menghapus tugas dan schedule yang sama;
+- panel Visit offline bisa membuat, mengedit, menghapus, dan mengganti status Fix / Masih rencana / Batal;
 - semua pemegang kode bisa mengunduh content dan lampiran tim;
 - notifikasi Telegram masuk saat tugas/content baru dibuat atau status berubah setelah rahasia Telegram disetel;
 - orang tanpa sesi yang sah tidak dapat membaca atau mengunduh file;
@@ -83,7 +83,7 @@ Langkah singkat:
 4. Di Supabase Dashboard project `ruang-kerja-rey`, buka halaman Edge Function Secrets dan tambahkan kedua nama secret beserta nilainya. Jangan masukkan token ke `app.js`, `config.js`, atau repository GitHub.
 5. Sesudah tersimpan, buat sebuah tugas uji atau upload content uji. Notifikasi berisi nama item, status, detail, dan waktu WIB.
 
-Notifikasi dipicu oleh pembuatan tugas/content, perubahan status, upload lampiran tugas, serta pengiriman revisi/approval. Jika secret belum ada atau salah, aplikasi tetap menyimpan data; notifikasi tidak terkirim sampai rahasia diperbaiki. Dokumentasi resmi: [Supabase Edge Function secrets](https://supabase.com/docs/guides/functions/secrets).
+Notifikasi dipicu oleh pembuatan tugas/content, perubahan status, upload lampiran tugas, pengiriman revisi/approval, serta pembuatan, pengubahan, pembatalan, atau penghapusan schedule visit offline. Jika secret belum ada atau salah, aplikasi tetap menyimpan data; notifikasi tidak terkirim sampai rahasia diperbaiki. Dokumentasi resmi: [Supabase Edge Function secrets](https://supabase.com/docs/guides/functions/secrets).
 
 ## Backup
 
@@ -94,6 +94,6 @@ Menu Arsip & File menyediakan backup terenkripsi browser `.rkbak`. Saat ini back
 - `index.html`, `styles.css`, `app.js`: antarmuka dan logika frontend.
 - `config.js`: Supabase URL dan public publishable key.
 - `supabase/schema.sql`: schema untuk instalasi baru, tabel, RLS, bucket privat.
-- `supabase/migrations/`: migrasi perubahan database, termasuk `20261022_add_deadline_time_and_content_panel.sql`.
+- `supabase/migrations/`: migrasi perubahan database, termasuk dukungan dua kode berwarna, potongan file besar, dan schedule visit offline.
 - `scripts/build.mjs`: hanya menyalin aset website ke `dist/`.
 - `.github/workflows/check.yml`: tes syntax/build dan memastikan SQL backend tidak masuk output publik.
