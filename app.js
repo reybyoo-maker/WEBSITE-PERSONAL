@@ -639,7 +639,10 @@ async function uploadPrivateFile(taskId, file, onPart = () => {}) {
       if (!session.uploadUrl || !session.uploadUrl.startsWith("https://")) throw new Error("Sesi upload Google Drive tidak valid.");
       const response = await fetch(session.uploadUrl, {
         method: "PUT",
-        headers: { "Content-Type": mimeType },
+        headers: {
+          "Content-Type": mimeType,
+          "Content-Range": "bytes 0-" + (end - start - 1) + "/" + (end - start)
+        },
         body: file.slice(start, end)
       });
       if (!response.ok) {
