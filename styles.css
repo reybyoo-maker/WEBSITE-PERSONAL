@@ -38,3 +38,17 @@
 .revision-note-display{margin:10px 0 0;padding:10px 12px;border-left:3px solid #c68b2c;background:#fff8e8;border-radius:0 8px 8px 0;color:#674a20;white-space:pre-line;overflow-wrap:anywhere}
 .content-item-actions{align-items:center}
 @media(max-width:760px){.file-row-actions{width:100%;justify-content:stretch}.file-row-actions .btn{flex:1}.content-file-row{flex-wrap:wrap}.content-file-row .content-file-name{flex-basis:calc(100% - 48px)}.content-file-row .btn{margin-left:auto}}
+
+/* Shared identities, single-file-at-a-time selection, and offline visit schedules */
+.avatar-code-red{background:#fee2e2!important;color:#b91c1c!important;border:1px solid #fecaca}
+.avatar-code-pink{background:#fce7f3!important;color:#be185d!important;border:1px solid #fbcfe8}
+.dynamic-file-row{display:flex;gap:8px;align-items:center;margin:7px 0;min-width:0}
+.dynamic-file-row input[type=file]{flex:1;min-width:0;width:100%;font-size:11px}
+.remove-file-picker{flex:none;min-width:33px;font-size:16px}
+.visit-create-panel,.visit-list-panel{margin-bottom:18px}
+.visit-table{min-width:920px}
+.visit-table td{vertical-align:top}
+.visit-table td:first-child strong{display:block;font-size:11px}
+.visit-date-cell{white-space:normal;min-width:185px;line-height:1.6}
+.visit-status-select{min-width:125px;padding:8px 23px 8px 8px;font-size:11px}
+.visit-row-actions{display:flex;gap:6px;flex-wrap:wrap}
