@@ -267,7 +267,7 @@ create table public.task_attachments (
   size_bytes bigint not null check (size_bytes > 0 and size_bytes <= 838860800),
   uploaded_by uuid not null references public.profiles(id),
   storage_parts jsonb not null default '[]'::jsonb,
-  storage_provider text not null default 'supabase' check (storage_provider in ('supabase','backblaze')),
+  storage_provider text not null default 'supabase' check (storage_provider in ('supabase','backblaze','google_drive')),
   storage_uploaded_at timestamptz not null default now(),
   created_at timestamptz not null default now(),
   attachment_type text not null default 'work' check (attachment_type in ('work','example')),
@@ -295,7 +295,7 @@ create table public.content_assets (
   size_bytes bigint not null check (size_bytes > 0 and size_bytes <= 838860800),
   uploaded_by uuid not null references public.profiles(id),
   storage_parts jsonb not null default '[]'::jsonb,
-  storage_provider text not null default 'supabase' check (storage_provider in ('supabase','backblaze')),
+  storage_provider text not null default 'supabase' check (storage_provider in ('supabase','backblaze','google_drive')),
   storage_uploaded_at timestamptz not null default now(),
   created_at timestamptz not null default now(),
   constraint content_assets_owner_path_check check (path like ('content/' || uploaded_by::text || '/%'))
