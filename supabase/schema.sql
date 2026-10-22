@@ -1,6 +1,6 @@
 -- RUANG KERJA — Supabase schema
--- Run this script ONCE in Supabase SQL Editor. Do not store task files in GitHub.
--- Invite codes themselves are not stored in this repository; only their SHA-256 hashes are seeded below.
+-- Run this script ONCE in Supabase SQL Editor for a fresh project only. Do not store task files in GitHub.
+-- The permanent access code is never stored in GitHub; only its SHA-256 hash is seeded below.
 
 create extension if not exists pgcrypto with schema extensions;
 
