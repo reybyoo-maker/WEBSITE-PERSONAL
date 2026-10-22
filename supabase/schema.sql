@@ -25,20 +25,52 @@ create table public.profiles (
 );
 alter table public.profiles enable row level security;
 
-create or replace function public.is_team_member()
+-- SECURITY DEFINER helpers are kept outside the exposed Data API schema.
+create schema if not exists private;
+revoke all on schema private from public, anon;
+grant usage on schema private to authenticated;
+
+create or replace function private.is_team_member()
 returns boolean
 language sql stable security definer
-set search_path = public, auth
+set search_path = ''
 as $$
-  select exists (select 1 from public.profiles where id = (select auth.uid()));
+  select exists (
+    select 1 from public.profiles
+    where id = (select auth.uid())
+  );
+$$;
+
+create or replace function private.current_user_role()
+returns text
+language sql stable security definer
+set search_path = ''
+as $$
+  select role from public.profiles
+  where id = (select auth.uid())
+  limit 1;
+$$;
+
+revoke all on function private.is_team_member() from public, anon;
+revoke all on function private.current_user_role() from public, anon;
+grant execute on function private.is_team_member() to authenticated;
+grant execute on function private.current_user_role() to authenticated;
+
+-- Public wrappers remain SECURITY INVOKER; the private helpers perform role checks.
+create or replace function public.is_team_member()
+returns boolean
+language sql stable security invoker
+set search_path = ''
+as $$
+  select private.is_team_member();
 $$;
 
 create or replace function public.current_user_role()
 returns text
-language sql stable security definer
-set search_path = public, auth
+language sql stable security invoker
+set search_path = ''
 as $$
-  select role from public.profiles where id = (select auth.uid()) limit 1;
+  select private.current_user_role();
 $$;
 
 revoke all on function public.is_team_member() from public, anon;
@@ -117,6 +149,7 @@ create table public.tasks (
 create index tasks_due_date_idx on public.tasks (due_date);
 create index tasks_status_idx on public.tasks (status);
 create index tasks_assigned_to_idx on public.tasks (assigned_to);
+create index if not exists tasks_created_by_idx on public.tasks (created_by);
 alter table public.tasks enable row level security;
 
 create or replace function public.enforce_task_workflow()
@@ -174,6 +207,7 @@ create table public.task_comments (
   created_at timestamptz not null default now()
 );
 create index task_comments_task_idx on public.task_comments (task_id, created_at);
+create index if not exists task_comments_user_id_idx on public.task_comments (user_id);
 alter table public.task_comments enable row level security;
 
 create table public.task_attachments (
@@ -182,12 +216,13 @@ create table public.task_attachments (
   path text not null unique,
   file_name text not null check (char_length(file_name) between 1 and 255),
   content_type text not null default 'application/octet-stream',
-  size_bytes bigint not null check (size_bytes > 0 and size_bytes <= 671088640000),
+  size_bytes bigint not null check (size_bytes > 0 and size_bytes <= 943718400000),
   uploaded_by uuid not null references public.profiles(id),
   created_at timestamptz not null default now(),
   check (path like task_id::text || '/%')
 );
 create index task_attachments_task_idx on public.task_attachments (task_id, created_at);
+create index if not exists task_attachments_uploaded_by_idx on public.task_attachments (uploaded_by);
 alter table public.task_attachments enable row level security;
 
 create table public.activity_log (
@@ -199,6 +234,8 @@ create table public.activity_log (
   created_at timestamptz not null default now()
 );
 create index activity_log_created_idx on public.activity_log (created_at desc);
+create index if not exists activity_log_task_id_idx on public.activity_log (task_id);
+create index if not exists activity_log_actor_id_idx on public.activity_log (actor_id);
 alter table public.activity_log enable row level security;
 
 create or replace function public.log_task_activity()
@@ -340,7 +377,7 @@ for insert to authenticated
 with check (
   public.is_team_member()
   and (uploaded_by = (select auth.uid()) or public.current_user_role() = 'manager')
-  and size_bytes <= 671088640000
+  and size_bytes <= 943718400000
   and path like task_id::text || '/%'
   and exists (
     select 1 from public.tasks t
