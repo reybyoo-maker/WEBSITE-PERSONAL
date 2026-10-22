@@ -596,25 +596,46 @@ async function uploadPrivateFile(taskId, file, onPart = () => {}) {
   const totalParts = Math.ceil(file.size / STORAGE_CHUNK_SIZE);
   if (totalParts > 100) throw new Error("File ini membutuhkan lebih dari 100 bagian upload.");
   const paths = [];
+  let provider = "backblaze";
   try {
     for (let part = 0; part < totalParts; part++) {
       const start = part * STORAGE_CHUNK_SIZE;
       const end = Math.min(start + STORAGE_CHUNK_SIZE, file.size);
       const partPath = rootPath + "/part-" + String(part + 1).padStart(4, "0");
       const contentType = file.type || "application/octet-stream";
-      const signed = await invokeBackblaze("presign-upload", { key: partPath, contentType, size: end - start });
-      const response = await fetch(signed.url, {
-        method: "PUT",
-        headers: { "Content-Type": contentType },
-        body: file.slice(start, end)
-      });
-      if (!response.ok) throw new Error("Backblaze menolak bagian " + (part + 1) + " (HTTP " + response.status + "). Periksa CORS dan konfigurasi bucket.");
+      if (provider === "backblaze") {
+        let signed = null;
+        try {
+          signed = await invokeBackblaze("presign-upload", { key: partPath, contentType, size: end - start });
+        } catch (error) {
+          if (part === 0 && paths.length === 0 && /Backblaze belum dikonfigurasi/i.test(error.message || "")) {
+            provider = "supabase";
+            toast("Backblaze belum dikonfigurasi; upload ini sementara memakai Supabase Storage. Isi secret B2 untuk mengaktifkan storage baru.", "error");
+          } else {
+            throw error;
+          }
+        }
+        if (provider === "backblaze") {
+          const response = await fetch(signed.url, {
+            method: "PUT",
+            headers: { "Content-Type": contentType },
+            body: file.slice(start, end)
+          });
+          if (!response.ok) throw new Error("Backblaze menolak bagian " + (part + 1) + " (HTTP " + response.status + "). Periksa CORS dan konfigurasi bucket.");
+        }
+      }
+      if (provider === "supabase") {
+        const { error } = await supabase.storage.from(STORAGE_BUCKET).upload(partPath, file.slice(start, end), {
+          cacheControl: "0", contentType, upsert: false
+        });
+        if (error) throw error;
+      }
       paths.push(partPath);
       onPart(part + 1, totalParts);
     }
-    return { path: rootPath, storage_parts: paths, size: file.size, storage_provider: "backblaze" };
+    return { path: rootPath, storage_parts: paths, size: file.size, storage_provider: provider };
   } catch (error) {
-    if (paths.length) await removeStorageObjects(paths, "backblaze").catch(() => {});
+    if (paths.length) await removeStorageObjects(paths, provider).catch(() => {});
     throw error;
   }
 }
@@ -702,8 +723,8 @@ async function uploadTaskFile(form) {
       });
       uploaded.push({ ...saved, ...entry });
     }
-    const rows = uploaded.map(({ path, storage_parts, file, attachment_type }) => ({
-      task_id: task.id, path, storage_parts, storage_provider: "backblaze", file_name: file.name.slice(0, 255),
+    const rows = uploaded.map(({ path, storage_parts, storage_provider, file, attachment_type }) => ({
+      task_id: task.id, path, storage_parts, storage_provider: storage_provider || "backblaze", file_name: file.name.slice(0, 255),
       content_type: file.type || "application/octet-stream", size_bytes: file.size,
       uploaded_by: state.user.id, attachment_type
     }));
@@ -713,8 +734,9 @@ async function uploadTaskFile(form) {
     await notifyTelegram("task_files_uploaded", task.title, STATUS[task.status], uploaded.length + " lampiran baru: " + uploaded.map((x) => x.file.name).join(", "));
     await refreshTaskDetail(task.id);
   } catch (error) {
-    const uploadedPaths = uploaded.flatMap((item) => item.storage_parts || [item.path]);
-    if (uploadedPaths.length) await removeStorageObjects(uploadedPaths, "backblaze").catch(() => {});
+    for (const item of uploaded) {
+      await removeStorageObjects(item.storage_parts || [item.path], item.storage_provider || "backblaze").catch(() => {});
+    }
     button.disabled = false;
     button.textContent = "Unggah lampiran terpilih";
     toast("Upload belum selesai: " + (error.message || "periksa koneksi dan kapasitas penyimpanan"), "error");
@@ -781,10 +803,10 @@ async function uploadContent(form) {
       });
       uploaded.push({ ...saved, file });
     }
-    const rows = uploaded.map(({ path, storage_parts, file }) => ({
+    const rows = uploaded.map(({ path, storage_parts, storage_provider, file }) => ({
       content_group_id: groupId, title, caption, scheduled_date: scheduledDate,
       scheduled_time: scheduledTime, content_format: contentFormat, status: "todo", revision_note: "",
-      path, storage_parts, storage_provider: "backblaze", file_name: file.name.slice(0, 255), content_type: file.type || "application/octet-stream",
+      path, storage_parts, storage_provider: storage_provider || "backblaze", file_name: file.name.slice(0, 255), content_type: file.type || "application/octet-stream",
       size_bytes: file.size, uploaded_by: state.user.id
     }));
     const { error: metadataError } = await supabase.from("content_assets").insert(rows);
@@ -797,7 +819,9 @@ async function uploadContent(form) {
     state.view = "content";
     await loadWorkspace();
   } catch (error) {
-    if (uploaded.length) await removeStorageObjects(uploaded.flatMap((x) => x.storage_parts || [x.path]), "backblaze").catch(() => {});
+    for (const item of uploaded) {
+      await removeStorageObjects(item.storage_parts || [item.path], item.storage_provider || "backblaze").catch(() => {});
+    }
     button.disabled = false;
     button.textContent = "＋ Upload content";
     toast("Content belum tersimpan: " + (error.message || "periksa koneksi dan kapasitas penyimpanan"), "error");
