@@ -48,9 +48,11 @@ Workflow `.github/workflows/deploy-pages.yml` akan build website dan deploy hasi
 
 GitHub Pages gratis untuk repository publik dan tidak membutuhkan kartu/billing untuk hosting standar. Source code terlihat publik, jadi jangan commit file kerja atau secret. Tidak diperlukan bucket eksternal, Cloudflare Worker, atau secret upload terpisah.
 
-### 3. Akun manager dan anggota
+### 3. Login kode permanen (tanpa email)
 
-Pendaftaran memakai kode undangan satu kali yang hash-nya disimpan pada skema privat database. Bagikan kode hanya lewat kanal privat kepada orang yang memang diizinkan. Setelah akun dibuat, pastikan email/konfirmasi login berjalan sebelum mengundang anggota lain.
+Halaman login hanya meminta satu kode akses yang dapat digunakan berulang kali. Kode mentah tidak disimpan pada repository atau browser bundle; database menyimpan hash-nya di skema privat. Semua pengguna dengan kode valid mendapat role dan hak akses yang sama, termasuk tugas, approval, riwayat aktivitas, dan lampiran.
+
+Untuk mengaktifkan login tanpa email, buka Supabase → Authentication → Providers (atau Sign In / Providers) → aktifkan **Anonymous Sign-Ins**. Login anonim hanya membuat sesi sementara; pengguna tetap tidak memiliki akses data sampai kode permanen diverifikasi oleh fungsi database. Jangan bagikan kode lewat kanal publik. Jika kode bocor, siapa pun yang memilikinya dapat masuk dengan hak akses penuh.
 
 ### 4. Uji sebelum dipakai
 
