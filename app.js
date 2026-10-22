@@ -381,7 +381,7 @@ const STORAGE_BUCKET = "ruang-kerja-files";
 const MAX_STORAGE_FILE_SIZE = 50 * 1024 * 1024;
 
 function safeFilename(name) {
-  return String(name || "file").normalize("NFKC").replace(/[^a-zA-Z0-9._-]+/g, "_").replace(/^\\.+/, "").slice(0, 100) || "file";
+  return String(name || "file").normalize("NFKC").replace(/[^a-zA-Z0-9._-]+/g, "_").replace(/^[.]+/, "").slice(0, 100) || "file";
 }
 async function uploadPrivateFile(taskId, file) {
   if (!file || file.size < 1) throw new Error("File kosong.");
