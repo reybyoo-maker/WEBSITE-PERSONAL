@@ -152,6 +152,19 @@ async function handleUploadAbort(request, env, user) {
   }
   return json(request, env, { ok: true });
 }
+
+async function handleObjectDelete(request, env, user) {
+  const payload = await request.json();
+  const taskId = String(payload.taskId || "");
+  const key = String(payload.key || "");
+  validateObjectKey(key, taskId, user.id);
+  await authorizeTask(env, user, taskId);
+  const rows = await dbGet(env, user, "task_attachments", { select: "id", path: "eq." + key, limit: "1" });
+  if (rows.length) return fail(request, env, "File sudah terdaftar; penghapusan melalui endpoint ini ditolak.", 409);
+  await env.FILES_BUCKET.delete(key);
+  return json(request, env, { ok: true });
+}
+
 function toBase64Url(bytes) {
   let binary = "";
   for (const byte of bytes) binary += String.fromCharCode(byte);
@@ -233,13 +246,13 @@ export default {
       if (!allowed.includes(origin)) return new Response(null, { status: 403 });
       return new Response(null, { status: 204, headers: cors(request, env) });
     }
-    if (!allowed.includes(origin)) return new Response("Origin tidak diizinkan.", { status: 403 });
     const url = new URL(request.url);
     const ticketDownload = request.method === "GET" && url.pathname === "/download" && url.searchParams.has("ticket");
     if (ticketDownload) {
       if (origin && !allowed.includes(origin)) return new Response("Origin tidak diizinkan.", { status: 403 });
       return handleTicketDownload(request, env);
     }
+    if (!allowed.includes(origin)) return new Response("Origin tidak diizinkan.", { status: 403 });
     if (request.method === "GET" && url.pathname === "/health") {
       return json(request, env, { ok: true, service: "ruang-kerja-file-api", maxParts: MAX_PARTS, partSize: PART_SIZE });
     }
@@ -249,6 +262,7 @@ export default {
       if (request.method === "POST" && url.pathname === "/upload/part") return await handleUploadPart(request, env, user);
       if (request.method === "POST" && url.pathname === "/upload/complete") return await handleUploadComplete(request, env, user);
       if (request.method === "POST" && url.pathname === "/upload/abort") return await handleUploadAbort(request, env, user);
+      if (request.method === "POST" && url.pathname === "/object/delete") return await handleObjectDelete(request, env, user);
       if (request.method === "POST" && url.pathname === "/download-ticket") return await handleDownloadTicket(request, env, user);
       return fail(request, env, "Endpoint tidak ditemukan.", 404);
     } catch (error) {
