@@ -182,7 +182,7 @@ create table public.task_attachments (
   path text not null unique,
   file_name text not null check (char_length(file_name) between 1 and 255),
   content_type text not null default 'application/octet-stream',
-  size_bytes bigint not null check (size_bytes > 0 and size_bytes <= 20971520),
+  size_bytes bigint not null check (size_bytes > 0 and size_bytes <= 671088640000),
   uploaded_by uuid not null references public.profiles(id),
   created_at timestamptz not null default now(),
   check (path like task_id::text || '/%')
@@ -340,7 +340,7 @@ for insert to authenticated
 with check (
   public.is_team_member()
   and (uploaded_by = (select auth.uid()) or public.current_user_role() = 'manager')
-  and size_bytes <= 20971520
+  and size_bytes <= 671088640000
   and path like task_id::text || '/%'
   and exists (
     select 1 from public.tasks t
@@ -358,58 +358,7 @@ create policy manager_can_restore_activity on public.activity_log
 for insert to authenticated
 with check (public.current_user_role() = 'manager' and public.is_team_member());
 
--- Private Storage bucket: never use public URLs. Max size 20 MB, allow only common work-file types.
-insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
-values (
-  'task-files', 'task-files', false, 20971520,
-  array[
-    'application/pdf','image/png','image/jpeg','image/webp','text/plain','text/csv',
-    'application/msword','application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    'application/vnd.ms-excel','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    'application/vnd.ms-powerpoint','application/vnd.openxmlformats-officedocument.presentationml.presentation',
-    'video/mp4','application/zip','application/x-zip-compressed'
-  ]::text[]
-)
-on conflict (id) do update
-set public = false, file_size_limit = excluded.file_size_limit, allowed_mime_types = excluded.allowed_mime_types;
-
-drop policy if exists team_can_download_private_task_files on storage.objects;
-create policy team_can_download_private_task_files on storage.objects
-for select to authenticated
-using (
-  bucket_id = 'task-files'
-  and public.is_team_member()
-  and exists (
-    select 1 from public.tasks t
-    where t.id::text = split_part(storage.objects.name, '/', 1)
-      and (public.current_user_role() = 'manager' or t.created_by = (select auth.uid()) or t.assigned_to = (select auth.uid()))
-  )
-);
-
-drop policy if exists team_can_upload_private_task_files on storage.objects;
-create policy team_can_upload_private_task_files on storage.objects
-for insert to authenticated
-with check (
-  bucket_id = 'task-files'
-  and public.is_team_member()
-  and exists (
-    select 1 from public.tasks t
-    where t.id::text = split_part(storage.objects.name, '/', 1)
-      and (public.current_user_role() = 'manager' or t.created_by = (select auth.uid()) or t.assigned_to = (select auth.uid()))
-  )
-);
-
--- Delete is available only to manager or the creator/assignee for their task, primarily for failed-upload cleanup.
-drop policy if exists permitted_delete_private_task_files on storage.objects;
-create policy permitted_delete_private_task_files on storage.objects
-for delete to authenticated
-using (
-  bucket_id = 'task-files'
-  and public.is_team_member()
-  and exists (
-    select 1 from public.tasks t
-    where t.id::text = split_part(storage.objects.name, '/', 1)
-      and (public.current_user_role() = 'manager' or t.created_by = (select auth.uid()) or t.assigned_to = (select auth.uid()))
-  )
-);
-
+-- File contents are stored in a private Cloudflare R2 bucket via worker/r2-worker.js.
+-- The browser cannot access the R2 bucket directly; Worker verifies the Supabase user token,
+-- role, task membership, and attachment metadata before authorizing upload/download.
+-- Keep R2 bucket private and do not create public object URLs.
