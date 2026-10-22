@@ -30,7 +30,7 @@ Jika total file tim melebihi 10 GB dan harus selalu gratis, tidak ada layanan cl
 ### 1. Buat project Supabase
 
 1. Buka https://supabase.com/ dan buat project.
-2. Di Supabase → SQL Editor, jalankan seluruh isi `supabase/schema.sql` satu kali.
+2. Di Supabase → SQL Editor, jalankan seluruh isi `supabase/schema.sql` untuk instalasi baru. Jika kamu sudah memakai schema versi lama sebelumnya, jalankan `supabase/migrations/20261022_r2_large_files.sql` agar batas metadata berubah tanpa menghapus catatan tugas yang sudah ada.
 3. Di Project Settings → API, salin Project URL dan public anon/publishable key ke `config.js`. Jangan pernah menggunakan service_role/secret key di browser.
 4. Pastikan Auth Email/Password aktif.
 
@@ -71,6 +71,7 @@ Menu Arsip & File menyediakan backup `.rkbak` terenkripsi di browser memakai AES
 - `index.html`, `styles.css`, `app.js`: antarmuka dan logika frontend.
 - `config.js`: Supabase URL, public key, dan URL Worker.
 - `supabase/schema.sql`: database, aturan role/RLS, metadata file.
+- `supabase/migrations/20261022_r2_large_files.sql`: perubahan limit metadata untuk instalasi lama.
 - `worker/r2-worker.js`: upload multipart, validasi akses, download bertiket singkat.
 - `worker/wrangler.toml`: konfigurasi Worker dan binding bucket.
 - `scripts/build.mjs`: hanya menyalin aset website ke `dist/`.
