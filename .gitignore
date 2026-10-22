@@ -1,0 +1,15 @@
+# Never commit credentials or private work files
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.rkbak
+*.backup
+*.dump
+*.sql.gz
+private-files/
+uploads/
+.DS_Store
