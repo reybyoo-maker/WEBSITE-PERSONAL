@@ -506,7 +506,7 @@ async function downloadFile(attachmentId) {
 async function deleteTaskAttachment(attachmentId) {
   const file = state.attachments.find((item) => item.id === attachmentId);
   if (!file) return toast("Lampiran tidak ditemukan.", "error");
-  if (!window.confirm("Hapus file "" + file.file_name + "" dari semua pengguna?")) return;
+  if (!window.confirm('Hapus file "' + file.file_name + '" dari semua pengguna?')) return;
   const { error: storageError } = await supabase.storage.from(STORAGE_BUCKET).remove([file.path]);
   if (storageError) return toast("File belum dapat dihapus: " + storageError.message, "error");
   const { error } = await supabase.from("task_attachments").delete().eq("id", attachmentId);
