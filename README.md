@@ -1,35 +1,37 @@
 # RUANG KERJA — portal pekerjaan pribadi
 
-Portal responsif untuk koordinasi tim: tugas dengan tanggal/jam deadline dan status Aktif/Terlambat, tombol Sudah beres, alur approval/revisi sampai Done, beberapa lampiran file pekerjaan dan file contoh opsional, panel Content dengan beberapa file dalam satu item, Copy caption, format Reels/Feed/Carousel, hapus file, riwayat aktivitas, backup terenkripsi, serta notifikasi Telegram melalui Supabase Edge Function.
+Portal responsif untuk koordinasi tim: tugas dan deadline, approval/revisi, lampiran pekerjaan, panel Content, schedule visit offline, backup terenkripsi, notifikasi Telegram, penyimpanan file privat Backblaze B2 untuk upload baru, serta retensi file 14 hari.
 
 ## Status project
 
 - Project Supabase `ruang-kerja-rey` sudah dibuat.
-- Database, aturan akses, dan bucket privat `ruang-kerja-files` sudah diterapkan.
+- Database, aturan akses, dan bucket privat Supabase `ruang-kerja-files` untuk file lama tetap tersedia.
+- Edge Function `b2-storage` sudah di-deploy. Upload baru memakai Backblaze B2 setelah bucket dan lima secret B2 dikonfigurasi; sebelum itu portal sementara memakai Supabase agar upload tidak langsung rusak.
 - `config.js` sudah diisi Project URL dan public publishable key.
 - Website sudah live melalui GitHub Pages: https://reybyoo-maker.github.io/WEBSITE-PERSONAL/.
 
 ## Privasi dan keamanan
 
-- File disimpan di **private Supabase Storage bucket**; tidak memakai layanan storage terpisah atau Worker tambahan.
-- RLS membatasi upload, download, dan akses lampiran berdasarkan akun serta tugas yang terkait. Download aplikasi menggunakan signed URL berumur 60 detik.
+- File baru disimpan di **private Backblaze B2 bucket** dan transfer memakai URL bertanda tangan yang berumur 15 menit. Kunci B2 berada di Supabase Edge Function Secrets, tidak dikirim ke browser.
+- Metadata tetap berada di Supabase dan dilindungi oleh RLS. File lama tetap menggunakan private Supabase Storage sampai retensinya lewat.
+- Saat file/folder (tugas atau grup Content) dihapus manual, backend menghapus seluruh versi objek B2 supaya kapasitasnya benar-benar dapat dipakai kembali.
 - Jangan commit file kerja, password, kode undangan, API key rahasia, atau backup ke GitHub.
-- Hosting gratis GitHub Pages di akun GitHub Free mengharuskan repository ini **Public**, sehingga source code dapat dilihat siapa saja. Jangan simpan dokumen kerja, password, kode undangan mentah, API secret, atau backup di repository. File kerja hanya boleh diakses melalui Supabase Storage privat dan kebijakan RLS.
+- Hosting gratis GitHub Pages di akun GitHub Free mengharuskan repository ini **Public**, sehingga source code dapat dilihat siapa saja. Jangan simpan dokumen kerja, password, kode undangan mentah, API secret, atau backup di repository. Konten file hanya dapat diakses melalui storage privat dan URL bertanda tangan setelah otorisasi sesi.
 - Jangan menyimpan dokumen rahasia negara/berklasifikasi atau dokumen yang dibatasi kebijakan instansi di layanan cloud umum tanpa persetujuan resmi. Sistem ini tidak tersertifikasi untuk penyimpanan dokumen berklasifikasi.
 
 ## Batas file paket gratis
 
-Supabase Free tetap memiliki kuota penyimpanan total dan batas ukuran objek fisik. Portal sekarang memecah file logis menjadi potongan privat masing-masing 20 MiB, sehingga aplikasi mendukung file hingga **800 MiB per lampiran** tanpa menaikkan batas 50 MiB per objek di bucket. Saat diunduh, potongan disatukan lagi di browser. **Ini bukan kapasitas tanpa batas**: kuota penyimpanan gratis total tetap terbatas (umumnya 1 GiB untuk Supabase Free), begitu juga kuota transfer/egress. Periksa pemakaian di Dashboard Supabase sebelum mengunggah banyak video atau file besar.
+Portal memecah file menjadi potongan masing-masing 20 MiB sehingga batas aplikasi adalah **800 MiB per file**. Potongan disatukan kembali ketika diunduh. Backblaze B2 menyediakan jatah gratis terbatas; kuota, biaya penyimpanan, dan transfer terbaru mengikuti akun serta halaman harga provider. **Tidak ada storage gratis tanpa batas.** File yang sudah dihapus permanen membebaskan kapasitas, tetapi objek yang sudah kedaluwarsa otomatis dapat memerlukan 1–2 hari tambahan untuk dihapus permanen oleh proses lifecycle B2. Pastikan lifecycle, kapasitas, dan biaya diperiksa berkala.
 
-Bila ukuran file melampaui batas aplikasi, kompres atau pecah dokumen sesuai kebutuhan. Jangan menaikkan limit atau mengaktifkan paket berbayar tanpa memahami biaya. File disimpan pada bucket privat; potongan hanya bisa dibaca oleh anggota tim yang valid.
+Jika secret B2 belum disetel, portal memakai Supabase Storage sementara. File transisi itu tidak memakai kuota B2, dan akan dihapus oleh cleanup portal setelah 14 hari sejak kolom retensi diaktifkan. Jangan mengunggah dokumen rahasia/berklasifikasi atau file yang tidak diizinkan oleh kebijakan instansi.
 
-Dokumentasi: [Supabase Storage file limits](https://supabase.com/docs/guides/storage/uploads/file-limits) · [Supabase Storage buckets](https://supabase.com/docs/guides/storage/buckets/fundamentals)
+Dokumentasi: [Backblaze S3-Compatible API](https://www.backblaze.com/docs/cloud-storage-s3-compatible-api) · [Lifecycle Rules](https://www.backblaze.com/docs/en/cloud-storage-lifecycle-rules) · [CORS Rules](https://www.backblaze.com/docs/cloud-storage-cross-origin-resource-sharing-rules)
 
 ## Jalankan website
 
 ### 1. Supabase (project ini sudah dikonfigurasi)
 
-Database dan bucket privat sudah dibuat melalui migrasi. **Jangan jalankan ulang `supabase/schema.sql` di project yang sudah aktif ini**, karena file tersebut untuk instalasi baru. Project ini menggunakan `https://edgzffkhjtzejxjbtqib.supabase.co`; jangan pernah menaruh service-role/secret key ke browser.
+Database dan aturan akses sudah dibuat melalui migrasi. Bucket privat `ruang-kerja-files` digunakan untuk file lama. **Jangan jalankan ulang `supabase/schema.sql` di project yang sudah aktif ini**, karena file tersebut untuk instalasi baru. Project ini menggunakan `https://edgzffkhjtzejxjbtqib.supabase.co`; jangan pernah menaruh service-role/secret key atau kredensial Backblaze ke browser.
 
 Pastikan Authentication → Providers → **Anonymous Sign-Ins** aktif karena portal memakai kode akses tanpa email/password. Email provider tidak diperlukan untuk login portal ini. URL website tetap dapat dimasukkan pada Authentication → URL Configuration → Site URL.
 
@@ -43,7 +45,7 @@ Workflow `.github/workflows/deploy-pages.yml` akan build website dan deploy hasi
 4. URL project yang diharapkan: `https://reybyoo-maker.github.io/WEBSITE-PERSONAL/`.
 5. Di Supabase → Authentication → URL Configuration, atur **Site URL** ke URL di atas, dan tambahkan URL yang sama di **Redirect URLs**.
 
-GitHub Pages gratis untuk repository publik dan tidak membutuhkan kartu/billing untuk hosting standar. Source code terlihat publik, jadi jangan commit file kerja atau secret. Tidak diperlukan bucket eksternal, Cloudflare Worker, atau secret upload terpisah.
+GitHub Pages gratis untuk repository publik dan tidak membutuhkan kartu/billing untuk hosting standar. Source code terlihat publik, jadi jangan commit file kerja atau secret. Backblaze B2 adalah storage terpisah; kredensialnya harus disimpan sebagai Supabase Edge Function Secrets.
 
 ### 3. Login kode permanen (tanpa email)
 
@@ -60,7 +62,8 @@ Gunakan akun dummy dan file non-rahasia. Pastikan:
 - klik Sudah beres pada tugas atau content membuatnya muncul di panel Approval & revisi;
 - keputusan Approval mengubah status item menjadi Done, sedangkan Revisi menyimpan deskripsi perubahan;
 - tugas menerima beberapa file pekerjaan dan file contoh opsional; pilih file satu per satu, lalu kolom berikutnya muncul otomatis;
-- lampiran besar dipecah menjadi bagian privat dan dapat diunduh kembali; lakukan pengujian memakai file non-rahasia berukuran besar;
+- lampiran besar dipecah menjadi bagian privat 20 MiB dan dapat diunduh kembali; setelah secret B2 disetel, metadata file baru harus menunjukkan `storage_provider = backblaze`;
+- tombol Hapus membebaskan kapasitas B2 dengan menghapus semua versi objek, bukan hanya delete marker;
 - panel Content mendukung beberapa lampiran, Copy caption, pilihan Reels/Feed/Carousel, tanggal/jam, dan approval;
 - Kode 1 tampil merah dan Kode 2 tampil pink; keduanya bisa melihat, mengedit, menghapus tugas dan schedule yang sama;
 - panel Visit offline bisa membuat, mengedit, menghapus, dan mengganti status Fix / Masih rencana / Batal;
@@ -68,6 +71,24 @@ Gunakan akun dummy dan file non-rahasia. Pastikan:
 - notifikasi Telegram masuk saat tugas/content baru dibuat atau status berubah setelah rahasia Telegram disetel;
 - orang tanpa sesi yang sah tidak dapat membaca atau mengunduh file;
 - backup terenkripsi dapat dibuat dan dipulihkan.
+
+## Aktifkan Backblaze B2 (wajib untuk storage baru)
+
+Edge Function `b2-storage` sudah aktif di project Supabase, tetapi **upload baru belum memakai B2 sampai kamu membuat bucket dan mengisi secrets berikut**. Sementara konfigurasi belum lengkap, portal akan menaruh upload baru di Supabase Storage dan menampilkan peringatan.
+
+1. Buka [Backblaze B2 Cloud Storage](https://www.backblaze.com/cloud-storage), aktifkan B2, lalu buat satu bucket dengan akses **Private**. Nama bucket harus unik, misalnya `ruang-kerja-rey-<angka-acak>`. Catat bucket name, region, dan endpoint S3 yang biasanya berbentuk `https://s3.<region>.backblazeb2.com`.
+2. Di **Application Keys**, buat key baru yang dibatasi ke bucket tersebut. Aktifkan kemampuan **listFiles, readFiles, writeFiles, dan deleteFiles**. Jangan gunakan master application key. Salin Key ID dan Application Key saat dibuat; rahasianya biasanya hanya ditampilkan saat pembuatan.
+3. Di Supabase Dashboard project `ruang-kerja-rey`, buka **Edge Functions → Secrets** dan tambahkan:
+   - `B2_ENDPOINT` — contoh format: `https://s3.us-west-004.backblazeb2.com` (gunakan region milik bucketmu).
+   - `B2_REGION` — hanya nama region, misalnya `us-west-004`.
+   - `B2_BUCKET_NAME` — nama bucket yang kamu buat.
+   - `B2_KEY_ID` — Key ID dari Application Key.
+   - `B2_APPLICATION_KEY` — Application Key rahasia.
+4. Di bucket Backblaze, tambahkan aturan **CORS untuk S3-compatible API**. Izinkan origin tepat `https://reybyoo-maker.github.io`, metode `GET`, `PUT`, dan `HEAD`, header `*`, dan expose header `ETag`. CORS diperlukan karena browser upload/download langsung ke URL bertanda tangan. Lihat [panduan resmi CORS S3](https://www.backblaze.com/docs/cloud-storage-enable-cors-with-the-s3-compatible-api). Jika console akunmu tidak menyediakan pengaturan CORS, gunakan S3 API `PutBucketCors` dari tool/CLI tepercaya; untuk menulis CORS diperlukan izin konfigurasi bucket yang lebih luas, jadi jangan simpan key konfigurasi itu di website.
+5. Di **Buckets → bucket kamu → Lifecycle Settings**, pilih **Use custom lifecycle rules**, biarkan File Path kosong agar berlaku untuk seluruh object, atur `daysFromUploadingToHiding = 14` dan `daysFromHidingToDeleting = 1`, lalu simpan. Ini membuat objek disembunyikan setelah 14 hari dan versi fisiknya dihapus setelah aturan lifecycle berjalan. Karena pemrosesan berjalan berkala, penghapusan permanen aktual biasanya sekitar hari ke-15 atau ke-16. Dokumentasi: [Lifecycle Rules Backblaze](https://www.backblaze.com/docs/en/cloud-storage-lifecycle-rules).
+6. Buka portal, login, upload satu file uji yang tidak penting, download, lalu hapus. Jika masih muncul peringatan bahwa B2 belum dikonfigurasi, periksa nama secret dan endpoint/region. Jangan kirimkan nilai secret ke chat atau commit ke GitHub.
+
+**Penghapusan manual:** fungsi menghapus semua versi objek B2 yang diketahui untuk file yang dihapus. **Retensi otomatis:** aturan lifecycle bucket mengurus file yang mencapai umur 14 hari walaupun portal tidak sedang dibuka. Metadata lama dibersihkan oleh portal saat dibuka setelah melewati retensi.
 
 ## Notifikasi Telegram
 
@@ -93,7 +114,9 @@ Menu Arsip & File menyediakan backup terenkripsi browser `.rkbak`. Saat ini back
 
 - `index.html`, `styles.css`, `app.js`: antarmuka dan logika frontend.
 - `config.js`: Supabase URL dan public publishable key.
-- `supabase/schema.sql`: schema untuk instalasi baru, tabel, RLS, bucket privat.
-- `supabase/migrations/`: migrasi perubahan database, termasuk dukungan dua kode berwarna, potongan file besar, dan schedule visit offline.
+- `supabase/schema.sql`: schema untuk instalasi baru, tabel, RLS, bucket privat legacy.
+- `supabase/migrations/`: migrasi perubahan database, termasuk akses dua kode, retensi 14 hari, storage provider, dan schedule visit offline.
+- `supabase/functions/b2-storage/index.ts`: backend privat untuk URL upload/download sementara dan penghapusan permanen versi objek B2.
+- `supabase/functions/notify-telegram/index.ts`: notifikasi Telegram.
 - `scripts/build.mjs`: hanya menyalin aset website ke `dist/`.
 - `.github/workflows/check.yml`: tes syntax/build dan memastikan SQL backend tidak masuk output publik.
