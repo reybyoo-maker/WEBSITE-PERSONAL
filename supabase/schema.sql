@@ -614,3 +614,26 @@ using (
   and name like 'content/%'
   and public.is_team_member()
 );
+
+-- Google Drive OAuth values are server-only. Browser roles have no table access.
+CREATE TABLE IF NOT EXISTS public.google_drive_credentials (
+  id smallint PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+  refresh_token text NOT NULL,
+  folder_id text NOT NULL,
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE public.google_drive_credentials ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE public.google_drive_credentials FROM PUBLIC, anon, authenticated;
+GRANT ALL ON TABLE public.google_drive_credentials TO service_role;
+
+CREATE TABLE IF NOT EXISTS public.google_drive_oauth_states (
+  state text PRIMARY KEY,
+  user_id uuid NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  expires_at timestamptz NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS google_drive_oauth_states_expiry_idx
+  ON public.google_drive_oauth_states (expires_at);
+ALTER TABLE public.google_drive_oauth_states ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE public.google_drive_oauth_states FROM PUBLIC, anon, authenticated;
+GRANT ALL ON TABLE public.google_drive_oauth_states TO service_role;
