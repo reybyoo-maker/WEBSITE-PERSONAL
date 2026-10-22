@@ -249,13 +249,14 @@ grant usage on schema public to authenticated;
 revoke all on public.profiles, public.tasks, public.task_comments, public.task_attachments, public.activity_log from anon, authenticated;
 grant select (id, display_name, role, created_at) on public.profiles to authenticated;
 grant select on public.tasks to authenticated;
-grant insert (title, description, due_date, priority, status, created_by, assigned_to) on public.tasks to authenticated;
+grant insert (id, title, description, due_date, priority, status, created_by, assigned_to, created_at) on public.tasks to authenticated;
 grant update (title, description, due_date, priority, status, assigned_to) on public.tasks to authenticated;
 grant select on public.task_comments to authenticated;
-grant insert (task_id, user_id, comment) on public.task_comments to authenticated;
+grant insert (id, task_id, user_id, comment, created_at) on public.task_comments to authenticated;
 grant select on public.task_attachments to authenticated;
-grant insert (task_id, path, file_name, content_type, size_bytes, uploaded_by) on public.task_attachments to authenticated;
+grant insert (id, task_id, path, file_name, content_type, size_bytes, uploaded_by, created_at) on public.task_attachments to authenticated;
 grant select on public.activity_log to authenticated;
+grant insert (id, task_id, actor_id, action, details, created_at) on public.activity_log to authenticated;
 
 drop policy if exists team_can_read_profiles on public.profiles;
 create policy team_can_read_profiles on public.profiles
@@ -270,7 +271,7 @@ create policy team_can_create_tasks on public.tasks
 for insert to authenticated
 with check (
   public.is_team_member()
-  and created_by = (select auth.uid())
+  and (created_by = (select auth.uid()) or public.current_user_role() = 'manager')
   and status = 'todo'
 );
 
@@ -299,7 +300,7 @@ create policy team_can_add_comments on public.task_comments
 for insert to authenticated
 with check (
   public.is_team_member()
-  and user_id = (select auth.uid())
+  and (user_id = (select auth.uid()) or public.current_user_role() = 'manager')
   and char_length(trim(comment)) between 1 and 3000
   and exists (
     select 1 from public.tasks t
@@ -325,7 +326,7 @@ create policy team_can_add_attachments on public.task_attachments
 for insert to authenticated
 with check (
   public.is_team_member()
-  and uploaded_by = (select auth.uid())
+  and (uploaded_by = (select auth.uid()) or public.current_user_role() = 'manager')
   and size_bytes <= 20971520
   and path like task_id::text || '/%'
   and exists (
@@ -338,6 +339,11 @@ with check (
 drop policy if exists team_can_read_activity on public.activity_log;
 create policy team_can_read_activity on public.activity_log
 for select to authenticated using (public.is_team_member());
+
+drop policy if exists manager_can_restore_activity on public.activity_log;
+create policy manager_can_restore_activity on public.activity_log
+for insert to authenticated
+with check (public.current_user_role() = 'manager' and public.is_team_member());
 
 -- Private Storage bucket: never use public URLs. Max size 20 MB, allow only common work-file types.
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
