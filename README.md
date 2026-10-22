@@ -14,7 +14,7 @@ Portal responsif untuk koordinasi kamu dan manager: dashboard, tugas, deadline, 
 - File disimpan di **private Supabase Storage bucket**; tidak memakai layanan storage terpisah atau Worker tambahan.
 - RLS membatasi upload, download, dan akses lampiran berdasarkan akun serta tugas yang terkait. Download aplikasi menggunakan signed URL berumur 60 detik.
 - Jangan commit file kerja, password, kode undangan, API key rahasia, atau backup ke GitHub.
-- Disarankan ubah repository ke **Private** melalui Settings → General → Danger Zone → Change repository visibility.
+- Hosting gratis GitHub Pages di akun GitHub Free mengharuskan repository ini **Public**, sehingga source code dapat dilihat siapa saja. Jangan simpan dokumen kerja, password, kode undangan mentah, API secret, atau backup di repository. File kerja hanya boleh diakses melalui Supabase Storage privat dan kebijakan RLS.
 - Jangan menyimpan dokumen rahasia negara/berklasifikasi atau dokumen yang dibatasi kebijakan instansi di layanan cloud umum tanpa persetujuan resmi. Sistem ini tidak tersertifikasi untuk penyimpanan dokumen berklasifikasi.
 
 ## Batas file paket gratis
@@ -36,15 +36,17 @@ Database dan bucket privat sudah dibuat melalui migrasi. **Jangan jalankan ulang
 
 Pastikan Authentication → Providers → Email aktif. Setelah hosting aktif, tambahkan URL website ke Authentication → URL Configuration → Site URL dan Redirect URLs.
 
-### 2. Terbitkan antarmuka di Cloudflare Pages
+### 2. Terbitkan antarmuka gratis lewat GitHub Pages
 
-1. Buka https://dash.cloudflare.com/ lalu pilih Workers & Pages → Create application → Pages.
-2. Hubungkan repository GitHub `reybyoo-maker/WEBSITE-PERSONAL` dan pilih branch `main`.
-3. Build command: `npm run build`.
-4. Output directory: `dist`.
-5. Setelah deployment berhasil, catat URL Pages dan masukkan URL tersebut ke Authentication → URL Configuration pada Supabase.
+Workflow `.github/workflows/deploy-pages.yml` akan build website dan deploy hasil `dist/` secara otomatis.
 
-Tidak diperlukan bucket eksternal, Cloudflare Worker, atau secret upload terpisah. Frontend akan memakai Supabase Storage secara langsung dengan aturan akses database.
+1. Buka https://github.com/reybyoo-maker/WEBSITE-PERSONAL/settings/pages.
+2. Di **Build and deployment → Source**, pilih **GitHub Actions**.
+3. Tunggu workflow **Deploy Ruang Kerja to GitHub Pages** selesai sukses di tab Actions.
+4. URL project yang diharapkan: `https://reybyoo-maker.github.io/WEBSITE-PERSONAL/`.
+5. Di Supabase → Authentication → URL Configuration, atur **Site URL** ke URL di atas, dan tambahkan URL yang sama di **Redirect URLs**.
+
+GitHub Pages gratis untuk repository publik dan tidak membutuhkan kartu/billing untuk hosting standar. Source code terlihat publik, jadi jangan commit file kerja atau secret. Tidak diperlukan bucket eksternal, Cloudflare Worker, atau secret upload terpisah.
 
 ### 3. Akun manager dan anggota
 
