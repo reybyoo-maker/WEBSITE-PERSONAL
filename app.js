@@ -14,7 +14,7 @@ const supabase = configured ? createClient(config.supabaseUrl, config.supabaseAn
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
 const state = {
-  user: null, profile: null, profiles: [], tasks: [], comments: [], attachments: [], activities: [],
+  user: null, profile: null, profiles: [], tasks: [], comments: [], attachments: [], contentAssets: [], activities: [],
   view: "dashboard", selectedTaskId: null, loading: false
 };
 const STATUS = {
@@ -29,7 +29,7 @@ const STATUS = {
 const PRIORITY = { low: "Rendah", normal: "Normal", high: "Tinggi", urgent: "Urgent" };
 const PAGE_TITLE = {
   dashboard: "Dashboard", tasks: "Semua pekerjaan", approvals: "Approval & revisi",
-  files: "Arsip & file", activity: "Riwayat aktivitas"
+  files: "Arsip & file", content: "Content", activity: "Riwayat aktivitas"
 };
 
 function esc(value) {
@@ -50,13 +50,25 @@ function fmtDateTime(value) {
   if (!value) return "—";
   return fmtDate(value, { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
 }
+function fmtClock(value) {
+  return value ? String(value).slice(0, 5) : "";
+}
+function deadlineLabel(task, fallback = "—") {
+  return task?.due_date ? fmtDate(task.due_date) + (task.due_time ? " · " + fmtClock(task.due_time) : "") : fallback;
+}
+function contentScheduleLabel(item) {
+  return (item.scheduled_date ? fmtDate(item.scheduled_date) : "Tanggal belum diatur") +
+    " · " + (item.scheduled_time ? fmtClock(item.scheduled_time) : "Jam belum diatur");
+}
 function roleLabel(role) { return "Akses penuh"; }
 function statusBadge(status) {
   return '<span class="status status-' + esc(status) + '">' + esc(STATUS[status] || status) + "</span>";
 }
 function isClosed(task) { return ["done", "archived"].includes(task.status); }
 function isLate(task) {
-  return Boolean(task.due_date && task.due_date < new Date().toISOString().slice(0, 10) && !isClosed(task));
+  if (!task.due_date || isClosed(task)) return false;
+  const dueAt = new Date(task.due_date + "T" + (task.due_time ? String(task.due_time).slice(0, 8) : "23:59:59"));
+  return !Number.isNaN(dueAt.getTime()) && dueAt.getTime() < Date.now();
 }
 function profileName(id) {
   const found = state.profiles.find((item) => item.id === id);
@@ -96,7 +108,7 @@ function showLoading(text = "Memuat ruang kerja…") {
 function currentRole() { return state.profile ? state.profile.role : "member"; }
 function taskDetails(task) {
   const title = esc(task.title);
-  const due = task.due_date ? fmtDate(task.due_date) : "Tanpa deadline";
+  const due = deadlineLabel(task, "Tanpa deadline");
   const dueClass = isLate(task) ? "due-overdue" : "";
   const pName = profileName(task.assigned_to);
   return '<div class="task-main"><span class="task-title">' + title + '</span><div class="task-subline"><span class="priority-' + esc(task.priority) + '"><span class="priority-dot"></span>' + esc(PRIORITY[task.priority] || task.priority) + '</span><span class="' + dueClass + '">Deadline: ' + esc(due) + '</span><span>PIC: ' + esc(pName) + "</span></div></div>";
@@ -124,9 +136,12 @@ function renderDashboard() {
   const pending = state.tasks.filter((t) => t.status === "in_review").length;
   const overdue = active.filter(isLate).length;
   const recent = active.slice().sort((a, b) => {
+    if (!a.due_date && !b.due_date) return 0;
     if (!a.due_date) return 1;
     if (!b.due_date) return -1;
-    return a.due_date.localeCompare(b.due_date);
+    const dateDiff = a.due_date.localeCompare(b.due_date);
+    if (dateDiff) return dateDiff;
+    return String(a.due_time || "23:59:59").localeCompare(String(b.due_time || "23:59:59"));
   }).slice(0, 5);
   const needsMe = state.profile.role === "manager"
     ? state.tasks.filter((t) => t.status === "in_review" || t.status === "changes_requested").length
@@ -151,9 +166,12 @@ function renderTasks() {
     const rank = { in_review: 0, changes_requested: 1, in_progress: 2, todo: 3, approved: 4, done: 5, archived: 6 };
     const diff = (rank[a.status] ?? 9) - (rank[b.status] ?? 9);
     if (diff) return diff;
+    if (!a.due_date && !b.due_date) return 0;
     if (!a.due_date) return 1;
     if (!b.due_date) return -1;
-    return a.due_date.localeCompare(b.due_date);
+    const dateDiff = a.due_date.localeCompare(b.due_date);
+    if (dateDiff) return dateDiff;
+    return String(a.due_time || "23:59:59").localeCompare(String(b.due_time || "23:59:59"));
   });
   return '<div class="page-heading"><div><h2>Semua pekerjaan</h2><p>Semua tugas tim, PIC, deadline, dan statusnya.</p></div><div class="heading-actions">' + openCreateButton() + "</div></div>" +
     '<div class="toolbar"><label class="search-box"><span class="search-mark">⌕</span><input id="task-search" type="search" placeholder="Cari judul atau deskripsi…" autocomplete="off"></label><select id="task-status-filter" class="filter-select" aria-label="Filter status"><option value="">Semua status</option>' +
@@ -161,7 +179,7 @@ function renderTasks() {
     '</select><select id="task-priority-filter" class="filter-select" aria-label="Filter prioritas"><option value="">Semua prioritas</option>' +
     Object.keys(PRIORITY).map((key) => '<option value="' + key + '">' + esc(PRIORITY[key]) + "</option>").join("") +
     '</select></div><section class="panel"><div class="task-table-wrap"><table class="task-table"><thead><tr><th>Pekerjaan</th><th>Status</th><th>PIC</th><th>Deadline</th><th>Prioritas</th></tr></thead><tbody>' +
-    (rows.length ? rows.map((task) => '<tr data-status="' + esc(task.status) + '" data-priority="' + esc(task.priority) + '" data-search="' + esc((task.title + " " + (task.description || "") + " " + profileName(task.assigned_to)).toLowerCase()) + '"><td><button class="table-task-button task-open" data-id="' + esc(task.id) + '">' + esc(task.title) + '</button><span class="table-description">' + esc(task.description || "Tidak ada deskripsi") + '</span></td><td>' + statusBadge(task.status) + '</td><td>' + personChip(task.assigned_to) + '</td><td class="due-cell ' + (isLate(task) ? "due-overdue" : "") + '">' + esc(task.due_date ? fmtDate(task.due_date) : "—") + '</td><td>' + esc(PRIORITY[task.priority] || task.priority) + "</td></tr>").join("") : '<tr><td colspan="5">' + emptyState("Belum ada tugas", "Tambahkan pekerjaan pertama untuk tim.") + "</td></tr>") +
+    (rows.length ? rows.map((task) => '<tr data-status="' + esc(task.status) + '" data-priority="' + esc(task.priority) + '" data-search="' + esc((task.title + " " + (task.description || "") + " " + profileName(task.assigned_to)).toLowerCase()) + '"><td><button class="table-task-button task-open" data-id="' + esc(task.id) + '">' + esc(task.title) + '</button><span class="table-description">' + esc(task.description || "Tidak ada deskripsi") + '</span></td><td>' + statusBadge(task.status) + '</td><td>' + personChip(task.assigned_to) + '</td><td class="due-cell ' + (isLate(task) ? "due-overdue" : "") + '">' + esc(deadlineLabel(task, "—")) + '</td><td>' + esc(PRIORITY[task.priority] || task.priority) + "</td></tr>").join("") : '<tr><td colspan="5">' + emptyState("Belum ada tugas", "Tambahkan pekerjaan pertama untuk tim.") + "</td></tr>") +
     '</tbody></table></div><div id="filter-empty" class="empty-inline" hidden>Tidak ada tugas yang cocok dengan filter ini.</div></section>';
 }
 function applyTaskFilters() {
@@ -184,7 +202,7 @@ function renderApprovals() {
     ? ["in_review", "changes_requested"].includes(t.status)
     : ["in_review", "changes_requested"].includes(t.status) && (t.assigned_to === state.user.id || t.created_by === state.user.id));
   return '<div class="page-heading"><div><h2>Approval & revisi</h2><p>' + (manager ? "Tinjau hasil yang masuk dan berikan keputusan yang jelas." : "Pantau hasil yang menunggu review atau perlu diperbaiki.") + '</p></div></div><section class="panel"><div class="panel-header"><div><h3>' + (manager ? "Daftar review tim" : "Status review saya") + '</h3><p>' + candidates.length + " item perlu perhatian</p></div></div>" +
-    (candidates.length ? candidates.map((task) => '<div class="approval-card"><div><h3>' + esc(task.title) + '</h3><p>' + esc((task.description || "Tidak ada deskripsi").slice(0, 170)) + '</p><div class="task-subline">' + statusBadge(task.status) + '<span>PIC: ' + esc(profileName(task.assigned_to)) + '</span><span>Deadline: ' + esc(task.due_date ? fmtDate(task.due_date) : "—") + "</span></div></div><div class=\"approval-actions\"><button class=\"btn btn-secondary btn-small task-open\" data-id=\"" + esc(task.id) + "\">" + (manager && task.status === "in_review" ? "Tinjau hasil" : "Buka tugas") + "</button>" + (manager && task.status === "in_review" ? '<button class="btn btn-approve btn-small task-quick-status" data-id="' + esc(task.id) + '" data-status="approved">Setujui</button>' : "") + "</div></div>").join("") : emptyState("Tidak ada approval tertunda", "Jika pekerjaan diajukan untuk review, pekerjaan itu akan muncul di sini.")) +
+    (candidates.length ? candidates.map((task) => '<div class="approval-card"><div><h3>' + esc(task.title) + '</h3><p>' + esc((task.description || "Tidak ada deskripsi").slice(0, 170)) + '</p><div class="task-subline">' + statusBadge(task.status) + '<span>PIC: ' + esc(profileName(task.assigned_to)) + '</span><span>Deadline: ' + esc(deadlineLabel(task, "—")) + "</span></div></div><div class=\"approval-actions\"><button class=\"btn btn-secondary btn-small task-open\" data-id=\"" + esc(task.id) + "\">" + (manager && task.status === "in_review" ? "Tinjau hasil" : "Buka tugas") + "</button>" + (manager && task.status === "in_review" ? '<button class="btn btn-approve btn-small task-quick-status" data-id="' + esc(task.id) + '" data-status="approved">Setujui</button>' : "") + "</div></div>").join("") : emptyState("Tidak ada approval tertunda", "Jika pekerjaan diajukan untuk review, pekerjaan itu akan muncul di sini.")) +
     "</section>";
 }
 function renderFiles() {
@@ -196,6 +214,27 @@ function renderFiles() {
       return '<div class="file-row"><div class="file-type-icon">' + esc(ext) + '</div><div class="file-info"><strong>' + esc(file.file_name) + '</strong><p>' + esc(task ? task.title : "Tugas") + " · " + esc(fmtDateTime(file.created_at)) + " · " + esc(formatBytes(file.size_bytes)) + '</p></div><button class="btn btn-secondary btn-small download-file" data-id="' + esc(file.id) + '">Unduh</button></div>';
     }).join("") : emptyState("Belum ada lampiran", "Buka detail tugas untuk mengunggah file kerja yang diizinkan.")) + "</section>";
 }
+function renderContent() {
+  const items = state.contentAssets.slice().sort((a, b) => {
+    if (a.scheduled_date && b.scheduled_date) {
+      const at = a.scheduled_time || "23:59:59";
+      const bt = b.scheduled_time || "23:59:59";
+      const difference = (a.scheduled_date + "T" + at).localeCompare(b.scheduled_date + "T" + bt);
+      if (difference) return -difference;
+    }
+    if (a.scheduled_date && !b.scheduled_date) return -1;
+    if (!a.scheduled_date && b.scheduled_date) return 1;
+    return b.created_at.localeCompare(a.created_at);
+  });
+  const rows = items.length ? items.map((item) => {
+    const ext = (item.file_name.split(".").pop() || "FILE").slice(0, 5).toUpperCase();
+    return '<article class="content-item"><div class="content-item-main"><div class="file-type-icon">' + esc(ext) + '</div><div class="content-item-copy"><h3>' + esc(item.title) + '</h3><p class="content-caption">' + esc(item.caption || "Belum ada caption.") + '</p><div class="content-item-meta"><span>◷ ' + esc(contentScheduleLabel(item)) + '</span><span>▤ ' + esc(formatBytes(item.size_bytes)) + '</span><span>File: ' + esc(item.file_name) + '</span></div></div></div><div class="content-item-actions"><button class="btn btn-secondary btn-small download-content" data-id="' + esc(item.id) + '">Unduh file</button><button class="btn btn-ghost btn-small delete-content" data-id="' + esc(item.id) + '">Hapus</button></div></article>';
+  }).join("") : emptyState("Belum ada content", "Upload file pertama lalu tambahkan judul, caption, tanggal, dan jam konten.");
+  return '<div class="page-heading"><div><h2>Content</h2><p>Tempat bersama untuk menyimpan dan mengambil file konten tim.</p></div><span class="role-badge">' + items.length + ' content</span></div>' +
+    '<section class="panel content-upload-panel"><div class="panel-header"><div><h3>Upload content</h3><p>Tambahkan file beserta detail publikasi atau jadwal kerja.</p></div></div><div class="panel-body"><form id="content-upload-form" class="form-stack"><div class="form-grid"><div class="field field-span"><label for="content-title-input">Judul content *</label><input id="content-title-input" name="title" required maxlength="160" placeholder="Contoh: Video promo Oktober"></div><div class="field field-span"><label for="content-caption-input">Caption / catatan</label><textarea id="content-caption-input" name="caption" maxlength="5000" rows="3" placeholder="Tulis caption final, arahan, hashtag, atau catatan revisi…"></textarea></div><div class="field"><label for="content-date-input">Tanggal content</label><input id="content-date-input" name="scheduled_date" type="date"></div><div class="field"><label for="content-time-input">Jam content</label><input id="content-time-input" name="scheduled_time" type="time"></div><div class="field field-span"><label for="content-file-input">File content *</label><input id="content-file-input" name="file" type="file" required><p class="field-help">File disimpan privat; semua pemegang kode akses dapat melihat dan mengunduh content tim.</p></div></div><div class="heading-actions"><button class="btn btn-primary" type="submit">＋ Upload content</button></div></form></div></section>' +
+    '<section class="panel content-list-panel"><div class="panel-header"><div><h3>Content tim</h3><p>Judul, caption, tanggal, jam, dan file dapat dilihat bersama.</p></div><span class="role-badge">' + items.length + ' file</span></div><div class="content-list">' + rows + '</div></section>';
+}
+
 function renderActivity() {
   const items = state.activities.slice().sort((a, b) => b.created_at.localeCompare(a.created_at));
   const labels = { task_created: "membuat tugas", status_changed: "mengubah status tugas", task_updated: "memperbarui tugas", comment_added: "menambahkan komentar", file_uploaded: "mengunggah lampiran" };
@@ -218,6 +257,7 @@ function renderPage() {
   else if (state.view === "tasks") $("#page-content").innerHTML = renderTasks();
   else if (state.view === "approvals") $("#page-content").innerHTML = renderApprovals();
   else if (state.view === "files") $("#page-content").innerHTML = renderFiles();
+  else if (state.view === "content") $("#page-content").innerHTML = renderContent();
   else $("#page-content").innerHTML = renderActivity();
 }
 function formatBytes(bytes) {
@@ -232,12 +272,13 @@ async function loadWorkspace() {
   if (!supabase || !state.user) return;
   state.loading = true;
   showLoading();
-  const [profileRes, profilesRes, tasksRes, commentsRes, attachmentsRes, activityRes] = await Promise.all([
+  const [profileRes, profilesRes, tasksRes, commentsRes, attachmentsRes, contentRes, activityRes] = await Promise.all([
     supabase.from("profiles").select("id,display_name,role,created_at").eq("id", state.user.id).maybeSingle(),
     supabase.from("profiles").select("id,display_name,role,created_at").order("display_name"),
     supabase.from("tasks").select("*").order("created_at", { ascending: false }),
     supabase.from("task_comments").select("id,task_id,user_id,comment,created_at").order("created_at", { ascending: true }),
     supabase.from("task_attachments").select("id,task_id,path,file_name,content_type,size_bytes,uploaded_by,created_at").order("created_at", { ascending: false }),
+    supabase.from("content_assets").select("id,title,caption,scheduled_date,scheduled_time,path,file_name,content_type,size_bytes,uploaded_by,created_at").order("created_at", { ascending: false }),
     supabase.from("activity_log").select("id,task_id,actor_id,action,details,created_at").order("created_at", { ascending: false }).limit(100)
   ]);
   if (profileRes.error || !profileRes.data) {
@@ -255,6 +296,7 @@ async function loadWorkspace() {
   state.tasks = tasksRes.data || [];
   state.comments = commentsRes.data || [];
   state.attachments = attachmentsRes.data || [];
+  state.contentAssets = contentRes.data || [];
   state.activities = activityRes.data || [];
   state.loading = false;
   $("#profile-name").textContent = state.profile.display_name;
@@ -278,7 +320,7 @@ function changeView(view) {
 }
 function openCreateModal() {
   const people = state.profiles.map((p) => '<option value="' + esc(p.id) + '"' + (p.id === state.user.id ? " selected" : "") + ">" + esc(p.display_name + " — " + roleLabel(p.role)) + "</option>").join("");
-  $("#modal-root").innerHTML = '<div class="modal-backdrop" data-backdrop><section class="modal-card" role="dialog" aria-modal="true" aria-labelledby="create-task-title"><div class="modal-header"><div><h2 id="create-task-title">Buat pekerjaan baru</h2><p>Jelaskan hasil yang dibutuhkan dan kapan harus selesai.</p></div><button class="icon-button close-modal" aria-label="Tutup">×</button></div><form id="create-task-form"><div class="modal-body"><div class="form-grid"><div class="field field-span"><label for="task-title-input">Judul pekerjaan *</label><input id="task-title-input" name="title" required maxlength="140" placeholder="Contoh: Siapkan laporan bulanan"></div><div class="field field-span"><label for="task-description-input">Deskripsi dan hasil yang diharapkan</label><textarea id="task-description-input" name="description" maxlength="8000" placeholder="Tuliskan brief, langkah kerja, dan kriteria selesai…"></textarea></div><div class="field"><label for="task-due-input">Deadline</label><input id="task-due-input" name="due_date" type="date"></div><div class="field"><label for="task-priority-input">Prioritas</label><select id="task-priority-input" name="priority"><option value="normal">Normal</option><option value="high">Tinggi</option><option value="urgent">Urgent</option><option value="low">Rendah</option></select></div><div class="field field-span"><label for="task-assignee-input">Penanggung jawab (PIC)</label><select id="task-assignee-input" name="assigned_to">' + people + '</select><p class="field-help">Semua pengguna kode akses memiliki hak yang sama.</p></div></div></div><div class="modal-footer"><button type="button" class="btn btn-secondary close-modal">Batal</button><button type="submit" class="btn btn-primary">Simpan pekerjaan</button></div></form></section></div>';
+  $("#modal-root").innerHTML = '<div class="modal-backdrop" data-backdrop><section class="modal-card" role="dialog" aria-modal="true" aria-labelledby="create-task-title"><div class="modal-header"><div><h2 id="create-task-title">Buat pekerjaan baru</h2><p>Jelaskan hasil yang dibutuhkan dan kapan harus selesai.</p></div><button class="icon-button close-modal" aria-label="Tutup">×</button></div><form id="create-task-form"><div class="modal-body"><div class="form-grid"><div class="field field-span"><label for="task-title-input">Judul pekerjaan *</label><input id="task-title-input" name="title" required maxlength="140" placeholder="Contoh: Siapkan laporan bulanan"></div><div class="field field-span"><label for="task-description-input">Deskripsi dan hasil yang diharapkan</label><textarea id="task-description-input" name="description" maxlength="8000" placeholder="Tuliskan brief, langkah kerja, dan kriteria selesai…"></textarea></div><div class="field"><label for="task-due-input">Tanggal deadline</label><input id="task-due-input" name="due_date" type="date"></div><div class="field"><label for="task-due-time-input">Jam deadline</label><input id="task-due-time-input" name="due_time" type="time"></div><div class="field"><label for="task-priority-input">Prioritas</label><select id="task-priority-input" name="priority"><option value="normal">Normal</option><option value="high">Tinggi</option><option value="urgent">Urgent</option><option value="low">Rendah</option></select></div><div class="field field-span"><label for="task-assignee-input">Penanggung jawab (PIC)</label><select id="task-assignee-input" name="assigned_to">' + people + '</select><p class="field-help">Semua pengguna kode akses memiliki hak yang sama.</p></div></div></div><div class="modal-footer"><button type="button" class="btn btn-secondary close-modal">Batal</button><button type="submit" class="btn btn-primary">Simpan pekerjaan</button></div></form></section></div>';
   $("#task-title-input")?.focus();
 }
 function taskActionButtons(task) {
@@ -304,9 +346,9 @@ function openTaskModal(taskId) {
   const comments = state.comments.filter((item) => item.task_id === taskId);
   const files = state.attachments.filter((item) => item.task_id === taskId);
   const actions = taskActionButtons(task);
-  $("#modal-root").innerHTML = '<div class="modal-backdrop" data-backdrop><section class="modal-card modal-wide" role="dialog" aria-modal="true" aria-labelledby="detail-task-title"><div class="modal-header"><div><div class="task-subline">' + statusBadge(task.status) + '<span class="priority-' + esc(task.priority) + '"><span class="priority-dot"></span>' + esc(PRIORITY[task.priority] || task.priority) + '</span></div><h2 id="detail-task-title" style="margin-top:7px">' + esc(task.title) + '</h2><p>Dibuat ' + esc(fmtDateTime(task.created_at)) + '</p></div><button class="icon-button close-modal" aria-label="Tutup">×</button></div><div class="modal-body"><div class="detail-metadata"><div class="detail-meta"><span>Penanggung jawab</span><strong>' + esc(profileName(task.assigned_to)) + '</strong></div><div class="detail-meta"><span>Deadline</span><strong class="' + (isLate(task) ? "due-overdue" : "") + '">' + esc(task.due_date ? fmtDate(task.due_date) : "Belum diatur") + '</strong></div><div class="detail-meta"><span>Dibuat oleh</span><strong>' + esc(profileName(task.created_by)) + '</strong></div></div><h3 class="section-subtitle" style="margin-top:15px">Deskripsi pekerjaan</h3><div class="detail-description">' + esc(task.description || "Belum ada deskripsi.") + '</div><div class="heading-actions" style="margin-top:14px">' + actions + '</div><div id="revision-box" class="modal-form-note" hidden><form id="revision-form"><label class="field-label" for="revision-note">Apa yang harus diperbaiki?</label><textarea id="revision-note" name="comment" required maxlength="3000" style="display:block;width:100%;margin:8px 0;border:1px solid #e3d2a9;border-radius:8px;padding:10px;font:inherit;min-height:75px" placeholder="Tuliskan catatan revisi yang jelas…"></textarea><button type="submit" class="btn btn-warning btn-small">Kirim permintaan revisi</button></form></div><h3 class="section-subtitle">Lampiran <span class="role-badge">' + files.length + '</span></h3><div class="file-warning"><strong>Privasi:</strong><span>Upload hanya file non-rahasia yang diizinkan. File disimpan di bucket privat Supabase Storage tanpa link publik permanen. Paket gratis membatasi ukuran file maksimal 50 MB per file dan kapasitas total 1 GB.</span></div>' +
+  $("#modal-root").innerHTML = '<div class="modal-backdrop" data-backdrop><section class="modal-card modal-wide" role="dialog" aria-modal="true" aria-labelledby="detail-task-title"><div class="modal-header"><div><div class="task-subline">' + statusBadge(task.status) + '<span class="priority-' + esc(task.priority) + '"><span class="priority-dot"></span>' + esc(PRIORITY[task.priority] || task.priority) + '</span></div><h2 id="detail-task-title" style="margin-top:7px">' + esc(task.title) + '</h2><p>Dibuat ' + esc(fmtDateTime(task.created_at)) + '</p></div><button class="icon-button close-modal" aria-label="Tutup">×</button></div><div class="modal-body"><div class="detail-metadata"><div class="detail-meta"><span>Penanggung jawab</span><strong>' + esc(profileName(task.assigned_to)) + '</strong></div><div class="detail-meta"><span>Deadline</span><strong class="' + (isLate(task) ? "due-overdue" : "") + '">' + esc(deadlineLabel(task, "Belum diatur")) + '</strong></div><div class="detail-meta"><span>Dibuat oleh</span><strong>' + esc(profileName(task.created_by)) + '</strong></div></div><h3 class="section-subtitle" style="margin-top:15px">Deskripsi pekerjaan</h3><div class="detail-description">' + esc(task.description || "Belum ada deskripsi.") + '</div><div class="heading-actions" style="margin-top:14px">' + actions + '</div><div id="revision-box" class="modal-form-note" hidden><form id="revision-form"><label class="field-label" for="revision-note">Apa yang harus diperbaiki?</label><textarea id="revision-note" name="comment" required maxlength="3000" style="display:block;width:100%;margin:8px 0;border:1px solid #e3d2a9;border-radius:8px;padding:10px;font:inherit;min-height:75px" placeholder="Tuliskan catatan revisi yang jelas…"></textarea><button type="submit" class="btn btn-warning btn-small">Kirim permintaan revisi</button></form></div><h3 class="section-subtitle">Lampiran <span class="role-badge">' + files.length + '</span></h3><div class="file-warning"><strong>Privasi:</strong><span>Unggah hanya file yang diizinkan untuk penyimpanan cloud. Lampiran tersimpan privat dan hanya tersedia melalui akun tim.</span></div>' +
     (files.length ? files.map((file) => '<div class="file-row"><div class="file-type-icon">' + esc((file.file_name.split(".").pop() || "FILE").slice(0, 4).toUpperCase()) + '</div><div class="file-info"><strong>' + esc(file.file_name) + '</strong><p>' + esc(formatBytes(file.size_bytes)) + " · " + esc(fmtDateTime(file.created_at)) + '</p></div><button class="btn btn-secondary btn-small download-file" data-id="' + esc(file.id) + '">Unduh</button></div>').join("") : '<div class="empty-inline">Belum ada lampiran pada tugas ini.</div>') +
-    '<form id="upload-form" class="form-stack" style="gap:8px;margin-top:12px"><label for="task-file-input">Tambah file (semua jenis file)</label><input id="task-file-input" name="file" type="file" required><p class="field-help">Batas unggah per file adalah 50 MB pada paket gratis Supabase. Batas ini mengikuti pengaturan penyimpanan project.</p><button class="btn btn-secondary" type="submit">Unggah lampiran</button></form><h3 class="section-subtitle">Komentar & catatan <span class="role-badge">' + comments.length + '</span></h3><div class="comment-list">' + (comments.length ? comments.map((c) => {
+    '<form id="upload-form" class="form-stack" style="gap:8px;margin-top:12px"><label for="task-file-input">Tambah file (semua jenis file)</label><input id="task-file-input" name="file" type="file" required><p class="field-help">Unggah file kerja yang diizinkan. Pastikan ukuran sesuai kapasitas penyimpanan yang tersedia.</p><button class="btn btn-secondary" type="submit">Unggah lampiran</button></form><h3 class="section-subtitle">Komentar & catatan <span class="role-badge">' + comments.length + '</span></h3><div class="comment-list">' + (comments.length ? comments.map((c) => {
       const author = state.profiles.find((p) => p.id === c.user_id);
       return '<article class="comment"><div class="comment-top"><strong>' + esc(author ? author.display_name : "Anggota tim") + '</strong><time>' + esc(fmtDateTime(c.created_at)) + '</time></div><p>' + esc(c.comment) + "</p></article>";
     }).join("") : '<div class="empty-inline">Belum ada komentar. Gunakan bagian ini untuk koordinasi.</div>') + '</div><form id="comment-form" class="comment-form"><textarea name="comment" rows="2" required maxlength="3000" placeholder="Tulis komentar atau update singkat…"></textarea><button type="submit" class="btn btn-primary btn-small">Kirim</button></form></div><div class="modal-footer"><button type="button" class="btn btn-secondary close-modal">Tutup</button></div></section></div>';
@@ -323,6 +365,7 @@ async function createTask(form) {
     title,
     description: String(data.get("description") || "").trim(),
     due_date: String(data.get("due_date") || "") || null,
+    due_time: String(data.get("due_time") || "") || null,
     priority: String(data.get("priority") || "normal"),
     status: "todo",
     created_by: state.user.id,
@@ -447,6 +490,74 @@ async function downloadFile(attachmentId) {
   } catch (error) {
     toast("File tidak dapat diunduh: " + (error.message || "kesalahan tidak diketahui"), "error");
   }
+}
+
+async function uploadContent(form) {
+  const data = new FormData(form);
+  const title = String(data.get("title") || "").trim();
+  const caption = String(data.get("caption") || "").trim();
+  const scheduledDate = String(data.get("scheduled_date") || "") || null;
+  const scheduledTime = String(data.get("scheduled_time") || "") || null;
+  const file = $("#content-file-input")?.files?.[0];
+  if (!title) return toast("Judul content wajib diisi.", "error");
+  if (!file || file.size < 1) return toast("Pilih file content terlebih dahulu.", "error");
+  if (file.size > MAX_STORAGE_FILE_SIZE) return toast("File melewati batas ukuran yang didukung. Kompres atau pilih file lebih kecil.", "error");
+  const button = $('button[type="submit"]', form);
+  button.disabled = true;
+  button.textContent = "Mengunggah content…";
+  let path = null;
+  try {
+    path = "content/" + state.user.id + "/" + crypto.randomUUID() + "-" + safeFilename(file.name);
+    const { data: uploadData, error: uploadError } = await supabase.storage.from(STORAGE_BUCKET).upload(path, file, {
+      cacheControl: "0", contentType: file.type || "application/octet-stream", upsert: false
+    });
+    if (uploadError) throw uploadError;
+    path = uploadData.path || path;
+    const { error: metadataError } = await supabase.from("content_assets").insert({
+      title, caption, scheduled_date: scheduledDate, scheduled_time: scheduledTime,
+      path, file_name: file.name.slice(0, 255),
+      content_type: file.type || "application/octet-stream",
+      size_bytes: file.size, uploaded_by: state.user.id
+    });
+    if (metadataError) {
+      await supabase.storage.from(STORAGE_BUCKET).remove([path]);
+      throw metadataError;
+    }
+    form.reset();
+    toast("Content berhasil diunggah.");
+    state.view = "content";
+    await loadWorkspace();
+  } catch (error) {
+    button.disabled = false;
+    button.textContent = "＋ Upload content";
+    toast("Content belum tersimpan: " + (error.message || "periksa koneksi dan kapasitas penyimpanan"), "error");
+  }
+}
+async function downloadContentFile(contentId) {
+  const item = state.contentAssets.find((asset) => asset.id === contentId);
+  if (!item) return toast("Content tidak ditemukan.", "error");
+  try {
+    const { data, error } = await supabase.storage.from(STORAGE_BUCKET)
+      .createSignedUrl(item.path, 60, { download: item.file_name });
+    if (error) throw error;
+    if (!data?.signedUrl) throw new Error("Tautan unduhan belum tersedia.");
+    const link = document.createElement("a");
+    link.href = data.signedUrl; link.rel = "noopener"; link.download = item.file_name;
+    document.body.appendChild(link); link.click(); link.remove();
+  } catch (error) {
+    toast("Content tidak bisa diunduh: " + (error.message || "kesalahan tidak diketahui"), "error");
+  }
+}
+async function deleteContent(contentId) {
+  const item = state.contentAssets.find((asset) => asset.id === contentId);
+  if (!item) return toast("Content tidak ditemukan.", "error");
+  if (!window.confirm("Hapus content “" + item.title + "” beserta file-nya untuk semua pengguna?")) return;
+  const { error: deleteFileError } = await supabase.storage.from(STORAGE_BUCKET).remove([item.path]);
+  if (deleteFileError) return toast("File belum dapat dihapus: " + deleteFileError.message, "error");
+  const { error: deleteRowError } = await supabase.from("content_assets").delete().eq("id", contentId);
+  if (deleteRowError) return toast("File sudah dihapus, tetapi catatan content belum terhapus: " + deleteRowError.message, "error");
+  toast("Content berhasil dihapus.");
+  await loadWorkspace();
 }
 
 async function deriveBackupKey(passphrase, salt, usages) {
@@ -648,6 +759,7 @@ async function logout() {
   state.tasks = [];
   state.comments = [];
   state.attachments = [];
+  state.contentAssets = [];
   state.activities = [];
   showAuth("Kamu sudah keluar dari ruang kerja.", "success");
 }
@@ -737,6 +849,10 @@ document.addEventListener("click", async (event) => {
   }
   const download = event.target.closest(".download-file");
   if (download) { await downloadFile(download.dataset.id); return; }
+  const contentDownload = event.target.closest(".download-content");
+  if (contentDownload) { await downloadContentFile(contentDownload.dataset.id); return; }
+  const contentDelete = event.target.closest(".delete-content");
+  if (contentDelete) { await deleteContent(contentDelete.dataset.id); return; }
   if (event.target.closest(".close-modal")) { closeModal(); return; }
   if (event.target.matches("[data-backdrop]")) { closeModal(); }
 });
@@ -749,6 +865,7 @@ document.addEventListener("submit", async (event) => {
   else if (event.target.id === "revision-form") { event.preventDefault(); await sendRevision(event.target); }
   else if (event.target.id === "comment-form") { event.preventDefault(); await addComment(event.target); }
   else if (event.target.id === "upload-form") { event.preventDefault(); await uploadTaskFile(event.target); }
+  else if (event.target.id === "content-upload-form") { event.preventDefault(); await uploadContent(event.target); }
 });
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && $("#modal-root").innerHTML) closeModal();
