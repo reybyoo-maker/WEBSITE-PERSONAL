@@ -101,6 +101,9 @@ declare
   v_hash text;
   v_role text;
 begin
+  if coalesce(new.is_anonymous, false) then
+    return new;
+  end if;
   v_code := upper(regexp_replace(coalesce(new.raw_user_meta_data ->> 'invite_code', ''), '\s+', '', 'g'));
   if length(v_code) < 20 or length(v_code) > 80 then
     raise exception 'Kode undangan tidak valid atau sudah digunakan';
@@ -172,7 +175,7 @@ begin
     raise exception 'Sesi bukan sesi kode akses.';
   end if;
 
-  v_normalized := upper(regexp_replace(coalesce(p_code, ''), '\\s+', '', 'g'));
+  v_normalized := upper(regexp_replace(coalesce(p_code, ''), '\s+', '', 'g'));
   if length(v_normalized) < 20 or length(v_normalized) > 80 then
     return false;
   end if;
