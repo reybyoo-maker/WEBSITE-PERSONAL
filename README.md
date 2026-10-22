@@ -63,7 +63,7 @@ Gunakan akun dummy dan file non-rahasia. Pastikan:
 - keputusan Approval mengubah status item menjadi Done, sedangkan Revisi menyimpan deskripsi perubahan;
 - tugas menerima beberapa file pekerjaan dan file contoh opsional; pilih file satu per satu, lalu kolom berikutnya muncul otomatis;
 - lampiran besar dipecah menjadi bagian privat 20 MiB dan dapat diunduh kembali; setelah secret Google Drive disetel, metadata file baru harus menunjukkan `storage_provider = google_drive`;
-- tombol Hapus membebaskan kapasitas Google Drive dengan menghapus semua versi objek, bukan hanya delete marker;
+- tombol Hapus menghapus file Google Drive secara permanen melalui Drive API;
 - panel Content mendukung beberapa lampiran, Copy caption, pilihan Reels/Feed/Carousel, tanggal/jam, dan approval;
 - Kode 1 tampil merah dan Kode 2 tampil pink; keduanya bisa melihat, mengedit, menghapus tugas dan schedule yang sama;
 - panel Visit offline bisa membuat, mengedit, menghapus, dan mengganti status Fix / Masih rencana / Batal;
@@ -141,7 +141,8 @@ Menu Arsip & File menyediakan backup terenkripsi browser `.rkbak`. Saat ini back
 - `config.js`: Supabase URL dan public publishable key.
 - `supabase/schema.sql`: schema untuk instalasi baru, tabel, RLS, bucket privat legacy.
 - `supabase/migrations/`: migrasi perubahan database, termasuk akses dua kode, retensi 14 hari, storage provider, dan schedule visit offline.
-- `supabase/functions/b2-storage/index.ts`: backend privat untuk URL upload/download sementara dan penghapusan permanen versi objek Google Drive.
+- `supabase/functions/google-drive-storage/index.ts`: backend privat untuk OAuth, upload/download, penghapusan permanen, dan retensi Google Drive.
 - `supabase/functions/notify-telegram/index.ts`: notifikasi Telegram.
+- `.github/workflows/google-drive-retention.yml`: pembersihan file harian setelah 14 hari.
 - `scripts/build.mjs`: hanya menyalin aset website ke `dist/`.
 - `.github/workflows/check.yml`: tes syntax/build dan memastikan SQL backend tidak masuk output publik.
