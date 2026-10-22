@@ -150,7 +150,7 @@ function renderDashboard() {
   const today = new Date().toISOString().slice(0, 10);
   const active = state.tasks.filter((t) => !isClosed(t));
   const dueToday = active.filter((t) => t.due_date === today).length;
-  const pending = state.tasks.filter((t) => t.status === "in_review").length;
+  const pending = state.tasks.filter((t) => t.status === "in_review").length + groupContentAssets().filter((c) => c.status === "in_review").length;
   const overdue = active.filter(isLate).length;
   const recent = active.slice().sort((a, b) => {
     if (!a.due_date && !b.due_date) return 0;
@@ -160,22 +160,20 @@ function renderDashboard() {
     if (dateDiff) return dateDiff;
     return String(a.due_time || "23:59:59").localeCompare(String(b.due_time || "23:59:59"));
   }).slice(0, 5);
-  const needsMe = state.profile.role === "manager"
-    ? state.tasks.filter((t) => t.status === "in_review" || t.status === "changes_requested").length
-    : state.tasks.filter((t) => t.status === "changes_requested" && (t.assigned_to === state.user.id || t.created_by === state.user.id)).length;
+  const needsMe = state.tasks.filter((t) => t.status === "in_review" || t.status === "changes_requested").length + groupContentAssets().filter((c) => c.status === "in_review" || c.status === "changes_requested").length;
   return '<div class="page-heading"><div><h2>Halo, ' + esc(state.profile.display_name.split(/\s+/)[0]) + '.</h2><p>Berikut ringkasan pekerjaan tim kamu hari ini.</p></div><div class="heading-actions">' + openCreateButton() + "</div></div>" +
     '<div class="stats-grid">' +
     statCard("Tugas aktif", active.length, "☷", "Semua pekerjaan yang belum selesai") +
     statCard("Deadline hari ini", dueToday, "◷", "Perlu dituntaskan hari ini") +
-    statCard(state.profile.role === "manager" ? "Menunggu review" : "Perlu ditindaklanjuti", needsMe, "✓", state.profile.role === "manager" ? "Pekerjaan menunggu keputusan" : "Approval atau revisi") +
+    statCard("Menunggu approval", needsMe, "✓", "Tugas dan content menunggu keputusan atau revisi") +
     statCard("Terlambat", overdue, "!", overdue ? "Periksa dan perbarui progres" : "Tidak ada tugas terlambat") +
     '</div><div class="dashboard-grid"><section class="panel"><div class="panel-header"><div><h3>Deadline terdekat</h3><p>Prioritas untuk beberapa hari ke depan</p></div><button class="text-action" data-view="tasks">Lihat semua →</button></div>' +
     (recent.length ? '<div class="task-list">' + recent.map((t) => taskRow(t, "Buka")).join("") + "</div>" : emptyState("Belum ada pekerjaan aktif", "Buat tugas pertama supaya deadline dan progres tercatat.", openCreateButton("Buat tugas pertama"))) +
     '</section><section class="panel"><div class="panel-header"><div><h3>Butuh perhatian</h3><p>Approval, revisi, atau tugas lewat deadline</p></div></div><div class="panel-body"><div class="mini-list">' +
     (overdue ? '<div class="mini-item"><span class="mini-dot" style="background:#b44343"></span><div class="mini-copy"><strong>' + overdue + " tugas terlambat</strong><p>Periksa deadline dan kabari penanggung jawab.</p></div></div>" : "") +
-    (pending ? '<div class="mini-item"><span class="mini-dot" style="background:#6b54a3"></span><div class="mini-copy"><strong>' + pending + " tugas menunggu approval</strong><p>" + (state.profile.role === "manager" ? "Buka panel approval untuk meninjau hasil." : "Manager perlu meninjau hasil yang diajukan.") + '</p><button class="text-action" data-view="approvals">Buka approval →</button></div></div>' : "") +
+    (pending ? '<div class="mini-item"><span class="mini-dot" style="background:#6b54a3"></span><div class="mini-copy"><strong>' + pending + " tugas menunggu approval</strong><p>" + "Buka menu Approval untuk meninjau hasil yang diajukan." + '</p><button class="text-action" data-view="approvals">Buka approval →</button></div></div>' : "") +
     (needsMe === 0 && overdue === 0 && pending === 0 ? '<div class="mini-item"><span class="mini-dot" style="background:#21785b"></span><div class="mini-copy"><strong>Semua terkendali</strong><p>Belum ada hal mendesak yang membutuhkan perhatian.</p></div></div>' : "") +
-    '<div class="mini-item"><span class="mini-dot"></span><div class="mini-copy"><strong>Panel ' + esc(roleLabel(state.profile.role)) + '</strong><p>' + (state.profile.role === "manager" ? "Kamu dan pengguna kode akses lain memiliki hak akses yang sama untuk tugas, revisi, dan approval." : "Kamu dapat memperbarui progres, melampirkan file yang diizinkan, dan mengajukan approval.") + "</p></div></div>" +
+    '<div class="mini-item"><span class="mini-dot"></span><div class="mini-copy"><strong>Panel ' + esc(roleLabel(state.profile.role)) + '</strong><p>' + "Semua pemegang kode akses memiliki hak yang sama untuk tugas, revisi, approval, dan file." + "</p></div></div>" +
     "</div></div></section></div>";
 }
 function renderTasks() {
@@ -213,10 +211,14 @@ function applyTaskFilters() {
   if (empty) empty.hidden = visible !== 0;
 }
 function renderApprovals() {
-  const manager = true;
   const candidates = state.tasks.filter((t) => ["in_review", "changes_requested"].includes(t.status));
   const contentCandidates = groupContentAssets().filter((c) => ["in_review", "changes_requested"].includes(c.status));
-  const taskCards = candidates.map((task) => '<article class="approval-card"><div><h3>' + esc(task.title) + '</h3><p>' + esc((task.description || "Tidak ada deskripsi").slice(0, 170)) + '</p><div class="task-subline">' + statusBadge(task.status) + deadlineStatusBadge(task) + '<span>PIC: ' + esc(profileName(task.assigned_to)) + '</span><span>Deadline: ' + esc(deadlineLabel(task, "—")) + '</span></div></div><div class="approval-actions"><button class="btn btn-secondary btn-small task-open" data-id="' + esc(task.id) + '">Buka tugas</button>' + (task.status === "in_review" ? '<button class="btn btn-warning btn-small task-quick-revision" data-id="' + esc(task.id) + '">Revisi</button><button class="btn btn-approve btn-small task-quick-status" data-id="' + esc(task.id) + '" data-status="done">Approval · Done</button>' : "") + '</div></article>').join("");
+  const taskCards = candidates.map((task) => {
+    const latestComment = state.comments.filter((comment) => comment.task_id === task.id).slice(-1)[0];
+    const revisionNote = task.status === "changes_requested" && latestComment
+      ? '<p class="revision-note-display"><strong>Catatan revisi:</strong> ' + esc(latestComment.comment) + '</p>' : "";
+    return '<article class="approval-card"><div><h3>' + esc(task.title) + '</h3><p>' + esc((task.description || "Tidak ada deskripsi").slice(0, 170)) + '</p>' + revisionNote + '<div class="task-subline">' + statusBadge(task.status) + deadlineStatusBadge(task) + '<span>PIC: ' + esc(profileName(task.assigned_to)) + '</span><span>Deadline: ' + esc(deadlineLabel(task, "—")) + '</span></div></div><div class="approval-actions"><button class="btn btn-secondary btn-small task-open" data-id="' + esc(task.id) + '">Buka tugas</button>' + (task.status === "in_review" ? '<button class="btn btn-warning btn-small task-quick-revision" data-id="' + esc(task.id) + '">Revisi</button><button class="btn btn-approve btn-small task-quick-status" data-id="' + esc(task.id) + '" data-status="done">Approval · Done</button>' : "") + '</div></article>';
+  }).join("");
   const contentCards = contentCandidates.map((content) => '<article class="approval-card"><div><h3>' + esc(content.title) + ' <span class="role-badge">' + esc(contentFormatLabel(content.content_format)) + '</span></h3><p>' + esc(content.caption || "Tidak ada caption.") + '</p><div class="task-subline">' + statusBadge(content.status) + '<span>' + content.files.length + ' file</span><span>Jadwal: ' + esc(contentScheduleLabel(content)) + '</span></div>' + (content.revision_note ? '<p class="revision-note-display"><strong>Catatan revisi:</strong> ' + esc(content.revision_note) + '</p>' : '') + '</div><div class="approval-actions">' + (content.status === "in_review" ? '<button class="btn btn-warning btn-small content-quick-revision" data-id="' + esc(content.content_group_id) + '">Revisi</button><button class="btn btn-approve btn-small content-quick-approve" data-id="' + esc(content.content_group_id) + '">Approval · Done</button>' : '<button class="btn btn-secondary btn-small" data-view="content">Buka content</button>') + '</div></article>').join("");
   const total = candidates.length + contentCandidates.length;
   return '<div class="page-heading"><div><h2>Approval & revisi</h2><p>Tugas dan content yang sudah diajukan masuk ke sini. Approval akan mengubah status menjadi Done.</p></div></div><section class="panel"><div class="panel-header"><div><h3>Menunggu approval atau perlu revisi</h3><p>' + total + ' item perlu perhatian</p></div></div>' +
@@ -620,7 +622,7 @@ function saveBlob(blob, filename) {
   window.setTimeout(() => URL.revokeObjectURL(url), 30000);
 }
 async function exportEncryptedBackup() {
-  if (currentRole() !== "manager") return toast("Backup penuh hanya tersedia untuk manager.", "error");
+  // Backup: semua pemegang kode akses memiliki hak yang sama.
   const passphrase = window.prompt("Buat password backup minimal 16 karakter. Simpan di tempat aman; tanpa password ini backup tidak bisa dipulihkan.");
   if (!passphrase) return;
   if (passphrase.length < 16) return toast("Password backup harus minimal 16 karakter.", "error");
@@ -685,7 +687,7 @@ async function insertInChunks(table, rows, chunkSize = 40) {
   }
 }
 async function restoreEncryptedBackup(file) {
-  if (currentRole() !== "manager") return toast("Pemulihan backup hanya tersedia untuk manager.", "error");
+  // Backup: semua pemegang kode akses memiliki hak yang sama.
   if (!file || file.size < 64 || file.size > 400 * 1024 * 1024) return toast("File backup tidak valid atau melebihi batas 400 MB.", "error");
   const passphrase = window.prompt("Masukkan password yang dipakai saat membuat backup.");
   if (!passphrase) return;
@@ -900,7 +902,7 @@ document.addEventListener("click", async (event) => {
   if (revision) { const box = $("#revision-box"); box.hidden = !box.hidden; $("#revision-note")?.focus(); return; }
   if (event.target.closest("[data-backup-export]")) { await exportEncryptedBackup(); return; }
   if (event.target.closest("[data-backup-restore]")) {
-    if (currentRole() !== "manager") return toast("Pemulihan backup hanya tersedia untuk manager.", "error");
+    // Backup: semua pemegang kode akses memiliki hak yang sama.
     const picker = document.createElement("input");
     picker.type = "file"; picker.accept = ".rkbak,application/octet-stream";
     picker.addEventListener("change", () => restoreEncryptedBackup(picker.files && picker.files[0]));
