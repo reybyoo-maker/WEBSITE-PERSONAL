@@ -50,7 +50,7 @@ function fmtDateTime(value) {
   if (!value) return "—";
   return fmtDate(value, { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
 }
-function roleLabel(role) { return role === "manager" ? "Manager" : "Anggota"; }
+function roleLabel(role) { return "Akses penuh"; }
 function statusBadge(status) {
   return '<span class="status status-' + esc(status) + '">' + esc(STATUS[status] || status) + "</span>";
 }
@@ -77,23 +77,18 @@ function toast(text, kind = "success") {
   region.appendChild(el);
   window.setTimeout(() => el.remove(), 4200);
 }
-function setAuthMode(mode) {
-  $("#login-view").hidden = mode !== "login";
-  $("#register-view").hidden = mode !== "register";
-  setAuthMessage("");
-}
 function showAuth(message = "", kind = "") {
   $("#app-shell").hidden = true;
   $("#auth-shell").hidden = false;
   $("#modal-root").innerHTML = "";
-  setAuthMode("login");
+  $("#login-form")?.reset();
   setAuthMessage(message, kind);
 }
 function showConfigWarning() {
   const node = $("#config-warning");
   node.hidden = false;
   node.innerHTML = "<strong>Setup belum selesai.</strong> Isi Project URL dan public anon/publishable key di <b>config.js</b>, lalu jalankan <b>supabase/schema.sql</b> di SQL Editor. Jangan memasukkan service-role/secret key di website.";
-  $$("#login-form button, #register-form button").forEach((button) => { button.disabled = true; });
+  $("#login-form button").forEach((button) => { button.disabled = true; });
 }
 function showLoading(text = "Memuat ruang kerja…") {
   $("#page-content").innerHTML = '<div class="loading-state"><span class="spinner"></span>' + esc(text) + "</div>";
@@ -148,7 +143,7 @@ function renderDashboard() {
     (overdue ? '<div class="mini-item"><span class="mini-dot" style="background:#b44343"></span><div class="mini-copy"><strong>' + overdue + " tugas terlambat</strong><p>Periksa deadline dan kabari penanggung jawab.</p></div></div>" : "") +
     (pending ? '<div class="mini-item"><span class="mini-dot" style="background:#6b54a3"></span><div class="mini-copy"><strong>' + pending + " tugas menunggu approval</strong><p>" + (state.profile.role === "manager" ? "Buka panel approval untuk meninjau hasil." : "Manager perlu meninjau hasil yang diajukan.") + '</p><button class="text-action" data-view="approvals">Buka approval →</button></div></div>' : "") +
     (needsMe === 0 && overdue === 0 && pending === 0 ? '<div class="mini-item"><span class="mini-dot" style="background:#21785b"></span><div class="mini-copy"><strong>Semua terkendali</strong><p>Belum ada hal mendesak yang membutuhkan perhatian.</p></div></div>' : "") +
-    '<div class="mini-item"><span class="mini-dot"></span><div class="mini-copy"><strong>Panel ' + esc(roleLabel(state.profile.role)) + '</strong><p>' + (state.profile.role === "manager" ? "Kamu dapat menugaskan pekerjaan, meminta revisi, dan menyetujui hasil." : "Kamu dapat memperbarui progres, melampirkan file yang diizinkan, dan mengajukan approval.") + "</p></div></div>" +
+    '<div class="mini-item"><span class="mini-dot"></span><div class="mini-copy"><strong>Panel ' + esc(roleLabel(state.profile.role)) + '</strong><p>' + (state.profile.role === "manager" ? "Kamu dan pengguna kode akses lain memiliki hak akses yang sama untuk tugas, revisi, dan approval." : "Kamu dapat memperbarui progres, melampirkan file yang diizinkan, dan mengajukan approval.") + "</p></div></div>" +
     "</div></div></section></div>";
 }
 function renderTasks() {
@@ -246,9 +241,13 @@ async function loadWorkspace() {
     supabase.from("activity_log").select("id,task_id,actor_id,action,details,created_at").order("created_at", { ascending: false }).limit(100)
   ]);
   if (profileRes.error || !profileRes.data) {
+    const wasAnonymous = Boolean(state.user?.is_anonymous);
     state.loading = false;
     await supabase.auth.signOut();
-    showAuth("Profil tidak ditemukan. Minta administrator portal memeriksa undangan dan schema database.", "error");
+    showAuth(
+      wasAnonymous ? "Masukkan kode akses untuk membuka ruang kerja." : "Profil tidak ditemukan. Coba masuk kembali dengan kode akses.",
+      wasAnonymous ? "" : "error"
+    );
     return;
   }
   state.profile = profileRes.data;
@@ -279,7 +278,7 @@ function changeView(view) {
 }
 function openCreateModal() {
   const people = state.profiles.map((p) => '<option value="' + esc(p.id) + '"' + (p.id === state.user.id ? " selected" : "") + ">" + esc(p.display_name + " — " + roleLabel(p.role)) + "</option>").join("");
-  $("#modal-root").innerHTML = '<div class="modal-backdrop" data-backdrop><section class="modal-card" role="dialog" aria-modal="true" aria-labelledby="create-task-title"><div class="modal-header"><div><h2 id="create-task-title">Buat pekerjaan baru</h2><p>Jelaskan hasil yang dibutuhkan dan kapan harus selesai.</p></div><button class="icon-button close-modal" aria-label="Tutup">×</button></div><form id="create-task-form"><div class="modal-body"><div class="form-grid"><div class="field field-span"><label for="task-title-input">Judul pekerjaan *</label><input id="task-title-input" name="title" required maxlength="140" placeholder="Contoh: Siapkan laporan bulanan"></div><div class="field field-span"><label for="task-description-input">Deskripsi dan hasil yang diharapkan</label><textarea id="task-description-input" name="description" maxlength="8000" placeholder="Tuliskan brief, langkah kerja, dan kriteria selesai…"></textarea></div><div class="field"><label for="task-due-input">Deadline</label><input id="task-due-input" name="due_date" type="date"></div><div class="field"><label for="task-priority-input">Prioritas</label><select id="task-priority-input" name="priority"><option value="normal">Normal</option><option value="high">Tinggi</option><option value="urgent">Urgent</option><option value="low">Rendah</option></select></div><div class="field field-span"><label for="task-assignee-input">Penanggung jawab (PIC)</label><select id="task-assignee-input" name="assigned_to">' + people + '</select><p class="field-help">Manager memiliki tombol approval. Keduanya memiliki panel pribadi sesuai akun.</p></div></div></div><div class="modal-footer"><button type="button" class="btn btn-secondary close-modal">Batal</button><button type="submit" class="btn btn-primary">Simpan pekerjaan</button></div></form></section></div>';
+  $("#modal-root").innerHTML = '<div class="modal-backdrop" data-backdrop><section class="modal-card" role="dialog" aria-modal="true" aria-labelledby="create-task-title"><div class="modal-header"><div><h2 id="create-task-title">Buat pekerjaan baru</h2><p>Jelaskan hasil yang dibutuhkan dan kapan harus selesai.</p></div><button class="icon-button close-modal" aria-label="Tutup">×</button></div><form id="create-task-form"><div class="modal-body"><div class="form-grid"><div class="field field-span"><label for="task-title-input">Judul pekerjaan *</label><input id="task-title-input" name="title" required maxlength="140" placeholder="Contoh: Siapkan laporan bulanan"></div><div class="field field-span"><label for="task-description-input">Deskripsi dan hasil yang diharapkan</label><textarea id="task-description-input" name="description" maxlength="8000" placeholder="Tuliskan brief, langkah kerja, dan kriteria selesai…"></textarea></div><div class="field"><label for="task-due-input">Deadline</label><input id="task-due-input" name="due_date" type="date"></div><div class="field"><label for="task-priority-input">Prioritas</label><select id="task-priority-input" name="priority"><option value="normal">Normal</option><option value="high">Tinggi</option><option value="urgent">Urgent</option><option value="low">Rendah</option></select></div><div class="field field-span"><label for="task-assignee-input">Penanggung jawab (PIC)</label><select id="task-assignee-input" name="assigned_to">' + people + '</select><p class="field-help">Semua pengguna kode akses memiliki hak yang sama.</p></div></div></div><div class="modal-footer"><button type="button" class="btn btn-secondary close-modal">Batal</button><button type="submit" class="btn btn-primary">Simpan pekerjaan</button></div></form></section></div>';
   $("#task-title-input")?.focus();
 }
 function taskActionButtons(task) {
@@ -656,46 +655,63 @@ async function logout() {
 $("#login-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   if (!supabase) return;
+
   const form = event.currentTarget;
   const button = $('button[type="submit"]', form);
   const data = new FormData(form);
-  button.disabled = true; button.textContent = "Memeriksa akun…"; setAuthMessage("");
-  const { error } = await supabase.auth.signInWithPassword({
-    email: String(data.get("email") || "").trim(),
-    password: String(data.get("password") || "")
-  });
-  button.disabled = false; button.textContent = "Masuk ke ruang kerja";
-  if (error) setAuthMessage("Login gagal. Periksa email, password, atau konfirmasi email kamu.", "error");
-});
-$("#register-form").addEventListener("submit", async (event) => {
-  event.preventDefault();
-  if (!supabase) return;
-  const form = event.currentTarget;
-  const button = $('button[type="submit"]', form);
-  const data = new FormData(form);
-  const email = String(data.get("email") || "").trim();
-  const password = String(data.get("password") || "");
-  const fullName = String(data.get("full_name") || "").trim();
-  const inviteCode = String(data.get("invite_code") || "").trim().toUpperCase().replace(/\s+/g, "");
-  if (password.length < 12) return setAuthMessage("Gunakan password minimal 12 karakter.", "error");
-  if (inviteCode.length < 20) return setAuthMessage("Kode undangan tidak lengkap.", "error");
-  button.disabled = true; button.textContent = "Mengaktifkan…"; setAuthMessage("");
-  const { data: result, error } = await supabase.auth.signUp({
-    email, password,
-    options: { data: { full_name: fullName, invite_code: inviteCode } }
-  });
-  button.disabled = false; button.textContent = "Aktifkan akun";
-  if (error) return setAuthMessage("Pendaftaran gagal. Pastikan kode undangan benar dan belum pernah digunakan. " + error.message, "error");
-  form.reset();
-  if (result.session) {
-    setAuthMessage("Akun aktif. Membuka ruang kerja…", "success");
-    await enterApp(result.user);
-  } else {
-    setAuthMode("login");
-    setAuthMessage("Pendaftaran diterima. Jika konfirmasi email aktif, buka email kamu untuk mengonfirmasi akun terlebih dahulu, lalu login.", "success");
+  const accessCode = String(data.get("access_code") || "").trim().toUpperCase().replace(/\s+/g, "");
+  if (accessCode.length < 20) {
+    setAuthMessage("Masukkan kode akses yang lengkap.", "error");
+    return;
+  }
+
+  button.disabled = true;
+  button.textContent = "Memverifikasi kode…";
+  setAuthMessage("");
+
+  let user = null;
+  try {
+    const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+    if (sessionError) throw sessionError;
+
+    user = sessionData.session?.user || null;
+    if (!user || !user.is_anonymous) {
+      if (user) await supabase.auth.signOut();
+      const { data: anonymousData, error: anonymousError } = await supabase.auth.signInAnonymously();
+      if (anonymousError) {
+        if (/anonymous|disabled|sign.?in provider/i.test(anonymousError.message || "")) {
+          throw new Error("Mode kode akses belum diaktifkan di Supabase. Aktifkan Authentication → Providers → Anonymous Sign-Ins, lalu coba lagi.");
+        }
+        throw anonymousError;
+      }
+      user = anonymousData.user || anonymousData.session?.user || null;
+    }
+    if (!user) throw new Error("Sesi belum terbentuk. Coba sekali lagi.");
+
+    const { data: accepted, error: codeError } = await supabase.rpc("activate_access_code", { p_code: accessCode });
+    if (codeError) throw codeError;
+    if (accepted !== true) {
+      await supabase.auth.signOut();
+      state.user = null;
+      state.profile = null;
+      showAuth("Kode akses salah atau tidak aktif. Periksa kode lalu coba lagi.", "error");
+      return;
+    }
+
+    form.reset();
+    state.user = user;
+    setAuthMessage("Kode diterima. Membuka ruang kerja…", "success");
+    await enterApp(user);
+  } catch (error) {
+    if (user && /kode akses/i.test(error.message || "") && /belum diaktifkan/i.test(error.message || "")) {
+      await supabase.auth.signOut().catch(() => {});
+    }
+    showAuth(error.message || "Tidak dapat masuk. Periksa koneksi dan coba lagi.", "error");
+  } finally {
+    button.disabled = false;
+    button.textContent = "Masuk ke ruang kerja";
   }
 });
-$$("[data-auth-mode]").forEach((button) => button.addEventListener("click", () => setAuthMode(button.dataset.authMode)));
 
 document.addEventListener("click", async (event) => {
   const nav = event.target.closest("[data-view]");
@@ -746,11 +762,16 @@ if (!configured) {
     else if (data.session) enterApp(data.session.user);
   }).catch(() => showAuth("Koneksi belum tersedia. Coba refresh halaman.", "error"));
   supabase.auth.onAuthStateChange((event, session) => {
-    if (session && ["SIGNED_IN", "TOKEN_REFRESHED", "USER_UPDATED"].includes(event)) {
+    if (session && ["TOKEN_REFRESHED", "USER_UPDATED"].includes(event) && state.user) {
       window.setTimeout(() => enterApp(session.user), 0);
     } else if (event === "SIGNED_OUT") {
       state.user = null;
       state.profile = null;
+      state.profiles = [];
+      state.tasks = [];
+      state.comments = [];
+      state.attachments = [];
+      state.activities = [];
       showAuth();
     }
   });
