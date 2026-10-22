@@ -30,7 +30,7 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM auth.users u WHERE u.id = v_user_id AND COALESCE(u.is_anonymous, false)) THEN
     RAISE EXCEPTION 'Sesi bukan sesi kode akses.';
   END IF;
-  v_normalized := upper(regexp_replace(coalesce(p_code, ''), '\\s+', '', 'g'));
+  v_normalized := upper(regexp_replace(coalesce(p_code, ''), '\s+', '', 'g'));
   IF length(v_normalized) < 20 OR length(v_normalized) > 80 THEN RETURN false; END IF;
   v_hash := encode(extensions.digest(convert_to(v_normalized, 'UTF8'), 'sha256'), 'hex');
   SELECT c.label, c.color INTO v_label, v_color FROM private.shared_access_codes c
