@@ -25,6 +25,10 @@ jobs:
         uses: actions/checkout@v6
       - name: Check JavaScript syntax
         run: node --input-type=module --check < app.js
+      - name: Prepare public website files
+        run: |
+          mkdir -p _site
+          cp index.html styles.css app.js config.js _site/
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
         with:
@@ -32,7 +36,7 @@ jobs:
       - name: Upload static website
         uses: actions/upload-pages-artifact@v4
         with:
-          path: .
+          path: _site
       - name: Deploy
         id: deployment
         uses: actions/deploy-pages@v4
