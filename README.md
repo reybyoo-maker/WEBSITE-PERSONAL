@@ -12,7 +12,7 @@ Repository saat ini bersifat **PUBLIC**. Source code boleh berada di sini, tetap
 
 Pembatasan 20 MB di aplikasi sudah dihapus. Form menerima berbagai tipe file, lalu mengunggahnya ke Cloudflare R2 menggunakan multipart upload bertahap, jadi unggahan dapat menangani file sangat besar dan tidak perlu mengirim seluruh file sebagai satu request. Unduhan mengalir langsung dari Worker agar file besar tidak ditampung seluruhnya di memori browser.
 
-Batas teknis implementasi sekarang sekitar **625 GiB per file** (10.000 bagian × 64 MiB per bagian). Ini bukan ukuran penyimpanan total tanpa batas: paket gratis R2 mencakup **10 GB-month storage**, 1 juta operasi Class A dan 10 juta Class B per bulan; penggunaan di atas kuota gratis dapat dikenakan biaya. Egress R2 tidak dikenakan biaya. Referensi: https://developers.cloudflare.com/r2/pricing/ dan https://developers.cloudflare.com/r2/objects/upload-objects/.
+Batas teknis implementasi sekarang sekitar **879 GiB per file** (10.000 bagian × 64 MiB per bagian). Ini bukan ukuran penyimpanan total tanpa batas: paket gratis R2 mencakup **10 GB-month storage**, 1 juta operasi Class A dan 10 juta Class B per bulan; penggunaan di atas kuota gratis dapat dikenakan biaya. Egress R2 tidak dikenakan biaya. Referensi: https://developers.cloudflare.com/r2/pricing/ dan https://developers.cloudflare.com/r2/objects/upload-objects/.
 
 Jika total file tim melebihi 10 GB dan harus selalu gratis, tidak ada layanan cloud publik yang dapat menjamin storage tanpa batas. Jangan aktifkan billing/overage kalau tidak ingin ada biaya. Pilih penyimpanan server/perangkat milik instansi dengan kapasitas yang memang tersedia dan persetujuan administrator IT.
 
@@ -22,7 +22,7 @@ Jika total file tim melebihi 10 GB dan harus selalu gratis, tidak ada layanan cl
 - Tugas, PIC, deadline, prioritas, deskripsi, komentar, dan pencarian.
 - Alur status serta approval/revisi manager yang diperiksa di database.
 - File disimpan di bucket R2 privat; Worker memverifikasi sesi Supabase, role, akses tugas, dan metadata sebelum mengizinkan upload/download.
-- File dapat berupa berbagai tipe, dengan batas implementasi saat ini sekitar 625 GiB untuk satu file.
+- File dapat berupa berbagai tipe, dengan batas implementasi saat ini sekitar 879 GiB untuk satu file.
 - Backup terenkripsi `.rkbak` untuk data dan lampiran berukuran total maksimal 300 MB per arsip melalui browser. Untuk koleksi file yang lebih besar, simpan salinan file terpisah ke media backup terenkripsi yang disetujui. Jangan menganggap backup arsip browser cocok untuk file multi-gigabyte.
 
 ## Setup gratis
