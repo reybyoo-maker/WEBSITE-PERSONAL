@@ -23,6 +23,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+      - name: Check JavaScript syntax
+        run: node --input-type=module --check < app.js
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
         with:
