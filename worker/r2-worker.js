@@ -1,5 +1,5 @@
 const MAX_PARTS = 10000;
-const PART_SIZE = 64 * 1024 * 1024;
+const PART_SIZE = 90 * 1024 * 1024;
 const MAX_FILE_SIZE = MAX_PARTS * PART_SIZE;
 const SAFE_NAME = (name) => String(name || "file").normalize("NFKC")
   .replace(/[^a-zA-Z0-9._-]+/g, "_").replace(/^\.+/, "").slice(0, 120) || "file";
