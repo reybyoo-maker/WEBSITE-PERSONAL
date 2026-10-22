@@ -18,26 +18,12 @@
       </div>
       <div id="config-warning" class="notice notice-warning" hidden></div>
       <section id="login-view">
-        <h2>Selamat datang kembali</h2>
-        <p class="muted">Masuk menggunakan akun pribadi kamu.</p>
+        <h2>Masuk ke ruang kerja</h2>
+        <p class="muted">Masukkan satu kode akses tim. Tidak perlu email atau password.</p>
         <form id="login-form" class="form-stack">
-          <label>Email<input name="email" type="email" autocomplete="username" required maxlength="254" placeholder="nama@email.com"></label>
-          <label>Password<input name="password" type="password" autocomplete="current-password" required minlength="10" placeholder="Password akun kamu"></label>
+          <label>Kode akses<input name="access_code" type="password" autocomplete="current-password" required minlength="20" maxlength="80" spellcheck="false" placeholder="Tempel kode akses permanen"></label>
           <button class="btn btn-primary btn-full" type="submit">Masuk ke ruang kerja</button>
         </form>
-        <p class="switch-auth">Pertama kali menggunakan portal? <button class="link-button" type="button" data-auth-mode="register">Daftar dengan kode undangan</button></p>
-      </section>
-      <section id="register-view" hidden>
-        <h2>Aktivasi akun</h2>
-        <p class="muted">Kode undangan unik hanya bisa digunakan satu kali. Role akun ditentukan oleh kode, bukan pilihan pengguna.</p>
-        <form id="register-form" class="form-stack">
-          <label>Nama tampilan<input name="full_name" type="text" autocomplete="name" required maxlength="80" placeholder="Nama kamu"></label>
-          <label>Email<input name="email" type="email" autocomplete="email" required maxlength="254" placeholder="nama@email.com"></label>
-          <label>Password<input name="password" type="password" autocomplete="new-password" required minlength="12" placeholder="Minimal 12 karakter"></label>
-          <label>Kode undangan pribadi<input name="invite_code" type="password" autocomplete="off" required minlength="20" maxlength="80" spellcheck="false" placeholder="Masukkan kode dari admin portal"></label>
-          <button class="btn btn-primary btn-full" type="submit">Aktifkan akun</button>
-        </form>
-        <p class="switch-auth">Sudah punya akun? <button class="link-button" type="button" data-auth-mode="login">Kembali ke login</button></p>
       </section>
       <div id="auth-message" class="notice" role="status" aria-live="polite" hidden></div>
       <div class="security-note"><span class="security-dot" aria-hidden="true"></span><div><strong>Gunakan hanya untuk data yang diizinkan.</strong><p>Jangan unggah dokumen rahasia negara/berklasifikasi ke layanan ini tanpa persetujuan tertulis dari instansi yang berwenang.</p></div></div>
