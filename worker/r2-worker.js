@@ -242,12 +242,12 @@ export default {
   async fetch(request, env) {
     const origin = request.headers.get("Origin") || "";
     const allowed = (env.ALLOWED_ORIGINS || "").split(",").map((v) => v.trim()).filter(Boolean);
+    const url = new URL(request.url);
+    const ticketDownload = request.method === "GET" && url.pathname === "/download" && url.searchParams.has("ticket");
     if (request.method === "OPTIONS") {
       if (!allowed.includes(origin)) return new Response(null, { status: 403 });
       return new Response(null, { status: 204, headers: cors(request, env) });
     }
-    const url = new URL(request.url);
-    const ticketDownload = request.method === "GET" && url.pathname === "/download" && url.searchParams.has("ticket");
     if (ticketDownload) {
       if (origin && !allowed.includes(origin)) return new Response("Origin tidak diizinkan.", { status: 403 });
       return handleTicketDownload(request, env);
