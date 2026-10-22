@@ -1,13 +1,13 @@
 # RUANG KERJA — portal pekerjaan pribadi
 
-Portal responsif untuk koordinasi kamu dan manager: dashboard, tugas, deadline, prioritas, komentar, approval/revisi, lampiran privat, riwayat aktivitas, dan backup terenkripsi.
+Portal responsif untuk koordinasi tim: dashboard, tugas dengan tanggal dan jam deadline, prioritas, komentar, approval/revisi, lampiran privat, panel Content bersama (judul, caption, tanggal/jam, upload/download), riwayat aktivitas, dan backup terenkripsi.
 
 ## Status project
 
 - Project Supabase `ruang-kerja-rey` sudah dibuat.
 - Database, aturan akses, dan bucket privat `ruang-kerja-files` sudah diterapkan.
 - `config.js` sudah diisi Project URL dan public publishable key.
-- Source code tetap di GitHub. Website belum live sampai hosting frontend diterbitkan.
+- Website sudah live melalui GitHub Pages: https://reybyoo-maker.github.io/WEBSITE-PERSONAL/.
 
 ## Privasi dan keamanan
 
@@ -73,6 +73,6 @@ Menu Arsip & File menyediakan backup terenkripsi browser `.rkbak`. Saat ini back
 - `index.html`, `styles.css`, `app.js`: antarmuka dan logika frontend.
 - `config.js`: Supabase URL dan public publishable key.
 - `supabase/schema.sql`: schema untuk instalasi baru, tabel, RLS, bucket privat.
-- `supabase/migrations/`: migrasi perubahan database.
+- `supabase/migrations/`: migrasi perubahan database, termasuk `20261022_add_deadline_time_and_content_panel.sql`.
 - `scripts/build.mjs`: hanya menyalin aset website ke `dist/`.
 - `.github/workflows/check.yml`: tes syntax/build dan memastikan SQL backend tidak masuk output publik.
