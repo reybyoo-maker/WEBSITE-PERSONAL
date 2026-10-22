@@ -135,9 +135,17 @@ async function handleUploadComplete(request, env, user) {
   if (validParts.some((part, index) => !Number.isInteger(part.partNumber) || part.partNumber !== index + 1 || !part.etag)) {
     return fail(request, env, "Urutan bagian file belum lengkap.");
   }
+  const declaredSize = Number(payload.size);
+  if (!Number.isSafeInteger(declaredSize) || declaredSize <= 0 || declaredSize > MAX_FILE_SIZE) {
+    return fail(request, env, "Ukuran file tidak valid.", 413);
+  }
   const upload = env.FILES_BUCKET.resumeMultipartUpload(key, uploadId);
   const result = await upload.complete(validParts);
-  return json(request, env, { key, etag: result.httpEtag || result.etag || "", size: Number(payload.size || 0) });
+  if (Number(result.size) !== declaredSize || Number(result.size) > MAX_FILE_SIZE) {
+    await env.FILES_BUCKET.delete(key);
+    return fail(request, env, "Ukuran file hasil upload tidak sesuai dengan ukuran yang dilaporkan.", 409);
+  }
+  return json(request, env, { key, etag: result.httpEtag || result.etag || "", size: Number(result.size) });
 }
 async function handleUploadAbort(request, env, user) {
   const payload = await request.json();
