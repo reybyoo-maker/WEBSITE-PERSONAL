@@ -229,29 +229,20 @@ begin
   if v_role is null then
     raise exception 'Akun bukan anggota tim';
   end if;
-  if v_role <> 'manager' then
-    if new.created_by is distinct from old.created_by then
-      raise exception 'Pembuat tugas tidak boleh diubah';
-    end if;
-    if new.title is distinct from old.title
-      or new.description is distinct from old.description
-      or new.due_date is distinct from old.due_date
-      or new.due_time is distinct from old.due_time
-      or new.priority is distinct from old.priority
-      or new.assigned_to is distinct from old.assigned_to then
-      raise exception 'Detail tugas hanya dapat diubah manager';
-    end if;
-    if old.status in ('approved', 'done', 'archived') and new.status is distinct from old.status then
-      raise exception 'Status final hanya dapat diubah manager';
-    end if;
-    if new.status is distinct from old.status then
-      if old.status in ('todo', 'changes_requested') and new.status = 'in_progress' then
-        null;
-      elsif old.status = 'in_progress' and new.status = 'in_review' then
-        null;
-      else
-        raise exception 'Perubahan status tidak mengikuti alur kerja yang diizinkan';
-      end if;
+  if new.created_by is distinct from old.created_by then
+    raise exception 'Pembuat tugas tidak boleh diubah';
+  end if;
+  if new.status is distinct from old.status then
+    if old.status in ('todo','changes_requested') and new.status in ('in_progress','in_review') then
+      null;
+    elsif old.status = 'in_progress' and new.status = 'in_review' then
+      null;
+    elsif old.status = 'in_review' and new.status in ('changes_requested','done') then
+      null;
+    elsif old.status = 'approved' and new.status = 'done' then
+      null;
+    else
+      raise exception 'Perubahan status tidak mengikuti alur kerja yang diizinkan';
     end if;
   end if;
   new.updated_at := now();
@@ -263,6 +254,7 @@ drop trigger if exists enforce_task_workflow_before_update on public.tasks;
 create trigger enforce_task_workflow_before_update
 before update on public.tasks
 for each row execute function public.enforce_task_workflow();
+
 
 create table public.task_comments (
   id uuid primary key default gen_random_uuid(),
@@ -284,31 +276,39 @@ create table public.task_attachments (
   size_bytes bigint not null check (size_bytes > 0 and size_bytes <= 52428800),
   uploaded_by uuid not null references public.profiles(id),
   created_at timestamptz not null default now(),
+  attachment_type text not null default 'work' check (attachment_type in ('work','example')),
   check (path like task_id::text || '/%')
 );
 create index task_attachments_task_idx on public.task_attachments (task_id, created_at);
 create index if not exists task_attachments_uploaded_by_idx on public.task_attachments (uploaded_by);
 alter table public.task_attachments enable row level security;
 
+
 create table public.content_assets (
   id uuid primary key default gen_random_uuid(),
+  content_group_id uuid not null default gen_random_uuid(),
   title text not null check (char_length(trim(title)) between 1 and 160),
   caption text not null default '' check (char_length(caption) <= 5000),
   scheduled_date date,
   scheduled_time time without time zone,
+  content_format text not null default 'feed' check (content_format in ('reels','feed','carousel')),
+  status text not null default 'todo' check (status in ('todo','in_review','changes_requested','done')),
+  revision_note text not null default '' check (char_length(revision_note) <= 3000),
   path text not null unique,
   file_name text not null check (char_length(file_name) between 1 and 255),
   content_type text not null default 'application/octet-stream',
   size_bytes bigint not null check (size_bytes > 0 and size_bytes <= 52428800),
   uploaded_by uuid not null references public.profiles(id),
   created_at timestamptz not null default now(),
-  constraint content_assets_owner_path_check
-    check (path like ('content/' || uploaded_by::text || '/%'))
+  constraint content_assets_owner_path_check check (path like ('content/' || uploaded_by::text || '/%'))
 );
 create index content_assets_scheduled_idx on public.content_assets (scheduled_date, scheduled_time);
 create index content_assets_created_idx on public.content_assets (created_at desc);
 create index if not exists content_assets_uploaded_by_idx on public.content_assets (uploaded_by);
+create index if not exists content_assets_group_idx on public.content_assets (content_group_id);
+create index if not exists content_assets_status_idx on public.content_assets (status);
 alter table public.content_assets enable row level security;
+
 
 create table public.activity_log (
   id uuid primary key default gen_random_uuid(),
@@ -389,7 +389,8 @@ grant update (title, description, due_date, due_time, priority, status, assigned
 grant select on public.task_comments to authenticated;
 grant insert (id, task_id, user_id, comment, created_at) on public.task_comments to authenticated;
 grant select on public.task_attachments to authenticated;
-grant insert (id, task_id, path, file_name, content_type, size_bytes, uploaded_by, created_at) on public.task_attachments to authenticated;
+grant insert (id, task_id, path, file_name, content_type, size_bytes, uploaded_by, created_at, attachment_type) on public.task_attachments to authenticated;
+grant delete on public.task_attachments to authenticated;
 grant select, insert, update, delete on public.content_assets to authenticated;
 grant select on public.activity_log to authenticated;
 grant insert (id, task_id, actor_id, action, details, created_at) on public.activity_log to authenticated;
@@ -405,23 +406,14 @@ for select to authenticated using (public.is_team_member());
 drop policy if exists team_can_create_tasks on public.tasks;
 create policy team_can_create_tasks on public.tasks
 for insert to authenticated
-with check (
-  public.is_team_member()
-  and (created_by = (select auth.uid()) or public.current_user_role() = 'manager')
-  and status = 'todo'
-);
+with check (public.is_team_member() and created_by = (select auth.uid()) and status = 'todo');
 
 drop policy if exists permitted_team_updates_tasks on public.tasks;
 create policy permitted_team_updates_tasks on public.tasks
 for update to authenticated
-using (
-  public.is_team_member()
-  and (public.current_user_role() = 'manager' or created_by = (select auth.uid()) or assigned_to = (select auth.uid()))
-)
-with check (
-  public.is_team_member()
-  and (public.current_user_role() = 'manager' or created_by = (select auth.uid()) or assigned_to = (select auth.uid()))
-);
+using (public.is_team_member())
+with check (public.is_team_member());
+
 
 drop policy if exists team_can_read_comments on public.task_comments;
 create policy team_can_read_comments on public.task_comments
@@ -436,25 +428,17 @@ create policy team_can_add_comments on public.task_comments
 for insert to authenticated
 with check (
   public.is_team_member()
-  and (user_id = (select auth.uid()) or public.current_user_role() = 'manager')
+  and user_id = (select auth.uid())
   and char_length(trim(comment)) between 1 and 3000
-  and exists (
-    select 1 from public.tasks t
-    where t.id = task_comments.task_id
-      and (public.current_user_role() = 'manager' or t.created_by = (select auth.uid()) or t.assigned_to = (select auth.uid()))
-  )
+  and exists (select 1 from public.tasks t where t.id = task_comments.task_id)
 );
+
 
 drop policy if exists team_can_read_attachments on public.task_attachments;
 create policy team_can_read_attachments on public.task_attachments
-for select to authenticated
-using (
+for select to authenticated using (
   public.is_team_member()
-  and exists (
-    select 1 from public.tasks t
-    where t.id = task_attachments.task_id
-      and (public.current_user_role() = 'manager' or t.created_by = (select auth.uid()) or t.assigned_to = (select auth.uid()))
-  )
+  and exists (select 1 from public.tasks t where t.id = task_attachments.task_id)
 );
 
 drop policy if exists team_can_add_attachments on public.task_attachments;
@@ -462,15 +446,20 @@ create policy team_can_add_attachments on public.task_attachments
 for insert to authenticated
 with check (
   public.is_team_member()
-  and (uploaded_by = (select auth.uid()) or public.current_user_role() = 'manager')
-  and size_bytes <= 52428800
+  and uploaded_by = (select auth.uid())
+  and size_bytes > 0 and size_bytes <= 52428800
   and path like task_id::text || '/%'
-  and exists (
-    select 1 from public.tasks t
-    where t.id = task_attachments.task_id
-      and (public.current_user_role() = 'manager' or t.created_by = (select auth.uid()) or t.assigned_to = (select auth.uid()))
-  )
+  and exists (select 1 from public.tasks t where t.id = task_attachments.task_id)
 );
+
+drop policy if exists team_can_delete_attachments on public.task_attachments;
+create policy team_can_delete_attachments on public.task_attachments
+for delete to authenticated
+using (
+  public.is_team_member()
+  and exists (select 1 from public.tasks t where t.id = task_attachments.task_id)
+);
+
 
 drop policy if exists content_assets_read_team on public.content_assets;
 create policy content_assets_read_team
@@ -520,12 +509,9 @@ for select to authenticated
 using (
   bucket_id = 'ruang-kerja-files'
   and public.is_team_member()
-  and exists (
-    select 1 from public.tasks t
-    where t.id::text = split_part(name, '/', 1)
-      and (public.current_user_role() = 'manager'
-        or t.created_by = (select auth.uid())
-        or t.assigned_to = (select auth.uid()))
+  and (
+    exists (select 1 from public.task_attachments a where a.path = storage.objects.name)
+    or exists (select 1 from public.content_assets c where c.path = storage.objects.name)
   )
 );
 
@@ -535,27 +521,33 @@ for insert to authenticated
 with check (
   bucket_id = 'ruang-kerja-files'
   and public.is_team_member()
-  and split_part(name, '/', 2) = (select auth.uid())::text
-  and exists (
-    select 1 from public.tasks t
-    where t.id::text = split_part(name, '/', 1)
-      and (public.current_user_role() = 'manager'
-        or t.created_by = (select auth.uid())
-        or t.assigned_to = (select auth.uid()))
+  and (
+    name like ('content/' || (select auth.uid())::text || '/%')
+    or (
+      split_part(name, '/', 2) = (select auth.uid())::text
+      and exists (select 1 from public.tasks t where t.id::text = split_part(name, '/', 1))
+    )
   )
 );
 
 drop policy if exists "ruang_kerja_storage_delete_own_uploads" on storage.objects;
-create policy "ruang_kerja_storage_delete_own_uploads" on storage.objects
+drop policy if exists "ruang_kerja_storage_delete_team" on storage.objects;
+create policy "ruang_kerja_storage_delete_team" on storage.objects
 for delete to authenticated
 using (
   bucket_id = 'ruang-kerja-files'
   and public.is_team_member()
-  and public.current_user_role() = 'manager'
-  and exists (
-    select 1 from public.tasks t where t.id::text = split_part(name, '/', 1)
+  and (
+    exists (select 1 from public.task_attachments a where a.path = storage.objects.name)
+    or exists (select 1 from public.content_assets c where c.path = storage.objects.name)
+    or (
+      split_part(name, '/', 2) = (select auth.uid())::text
+      and exists (select 1 from public.tasks t where t.id::text = split_part(name, '/', 1))
+    )
+    or name like ('content/' || (select auth.uid())::text || '/%')
   )
 );
+
 
 drop policy if exists ruang_kerja_content_storage_select on storage.objects;
 create policy ruang_kerja_content_storage_select
