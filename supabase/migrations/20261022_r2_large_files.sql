@@ -7,7 +7,7 @@ alter table public.task_attachments
 
 alter table public.task_attachments
   add constraint task_attachments_size_bytes_check
-  check (size_bytes > 0 and size_bytes <= 671088640000);
+  check (size_bytes > 0 and size_bytes <= 943718400000);
 
 drop policy if exists team_can_add_attachments on public.task_attachments;
 create policy team_can_add_attachments on public.task_attachments
@@ -16,7 +16,7 @@ with check (
   public.is_team_member()
   and (uploaded_by = (select auth.uid()) or public.current_user_role() = 'manager')
   and size_bytes > 0
-  and size_bytes <= 671088640000
+  and size_bytes <= 943718400000
   and path like task_id::text || '/%'
   and exists (
     select 1 from public.tasks t
