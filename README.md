@@ -21,9 +21,10 @@ Jangan unggah dokumen rahasia negara/berklasifikasi ke portal ini, GitHub, atau 
 2. Buka SQL Editor di project tersebut, lalu jalankan seluruh isi supabase/schema.sql satu kali.
 3. Dari Supabase Project Settings → API, salin Project URL dan public anon/publishable key. Masukkan keduanya ke config.js. Jangan pernah memakai service_role/secret key di browser.
 4. Di Supabase Authentication, pastikan pendaftaran email/password aktif. Trigger database menolak pendaftaran tanpa undangan yang valid, dan setiap kode hanya bisa dipakai sekali. Jika konfirmasi email aktif, pengguna harus mengonfirmasi email sebelum login.
-5. Bagikan kode undangan member dan manager secara pribadi, bukan lewat repository publik. Setelah akun pertama masing-masing berhasil dibuat, login memakai email dan password; kode undangan tidak dipakai lagi.
-6. Di GitHub repository Settings → Pages, pilih Build and deployment → Source: GitHub Actions. Workflow akan deploy setelah ada push ke main.
-7. Buka https://reybyoo-maker.github.io/WEBSITE-PERSONAL/ setelah workflow Pages sukses.
+5. Setelah Pages aktif, buka Authentication → URL Configuration di Supabase. Set Site URL ke https://reybyoo-maker.github.io/WEBSITE-PERSONAL/ dan masukkan URL yang sama pada daftar Redirect URLs agar tautan konfirmasi kembali ke website.
+6. Bagikan kode undangan member dan manager secara pribadi, bukan lewat repository publik. Pastikan email yang dimasukkan benar saat aktivasi: undangan dikonsumsi pada saat formulir pendaftaran diterima. Setelah akun berhasil dibuat, login memakai email dan password; kode undangan tidak dipakai lagi.
+7. Di GitHub repository Settings → Pages, pilih Build and deployment → Source: GitHub Actions. Ini perlu dilakukan manual karena GitHub tidak mengizinkan workflow biasa mengaktifkan Pages sendiri.
+8. Buka https://reybyoo-maker.github.io/WEBSITE-PERSONAL/ setelah setting Pages diaktifkan dan workflow deploy sukses. Jika run sebelumnya sudah gagal, buka Actions, pilih run terbaru, lalu klik Re-run all jobs.
 
 ## Cara pakai
 
