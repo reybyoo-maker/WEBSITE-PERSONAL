@@ -617,9 +617,7 @@ async function connectGoogleDrive() {
     if (button) { button.disabled = false; button.textContent = state.googleDriveConnected ? "Hubungkan ulang Google Drive" : "Hubungkan Google Drive"; }
   }
 }
-function safeFilename(name) {
-  return String(name || "file").normalize("NFKC").replace(/[^a-zA-Z0-9._-]+/g, "_").replace(/^[.]+/, "").slice(0, 100) || "file";
-}
+
 async function uploadPrivateFile(taskId, file, onPart = () => {}) {
   if (!file || file.size < 1) throw new Error("File kosong.");
   if (file.size > MAX_STORAGE_FILE_SIZE) throw new Error("File " + file.name + " melebihi batas aplikasi 800 MiB.");
