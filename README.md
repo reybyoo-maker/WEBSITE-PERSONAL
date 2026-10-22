@@ -31,7 +31,11 @@ Buat tugas, pilih penanggung jawab dan deadline. Anggota mengubah status menjadi
 
 ## Pemulihan dan backup
 
-Aktifkan pengingat backup sendiri. Ekspor tabel penting secara berkala dari Supabase Dashboard/SQL, dan unduh salinan file yang diizinkan dari bucket privat ke media backup terenkripsi yang disetujui. Simpan setidaknya satu salinan terpisah dari akun cloud utama dan uji pemulihan berkala. Jangan menganggap GitHub sebagai backup untuk database atau file upload.
+Di menu Arsip & File, akun manager bisa memilih **Backup terenkripsi**. Sistem mengunduh tugas, komentar, riwayat, metadata lampiran, dan konten file ke satu arsip .rkbak yang dienkripsi di browser memakai AES-GCM dengan kunci turunan PBKDF2. Password backup tidak dikirim ke database. Pilih password unik minimal 16 karakter dan simpan terpisah; jika password hilang, file backup tidak bisa dibuka.
+
+Gunakan **Pulihkan backup** untuk menggabungkan data yang hilang dari backup. Data yang sudah ada tidak ditimpa. Proses pemulihan belum menggantikan backup rutin dan harus diuji dengan data dummy sebelum dipakai untuk pemulihan sungguhan. Buat backup berkala, simpan minimal dua salinan di lokasi terpisah dan terenkripsi, lalu lakukan uji pemulihan. Jangan menganggap GitHub sebagai backup untuk database atau file upload.
+
+Perhatian: Supabase Free tidak menyediakan automatic database backups dan dapat menjeda project setelah 7 hari aktivitas yang rendah. Itu berarti backup .rkbak manual tetap penting dan website/database mungkin perlu dibangunkan kembali dari dashboard bila project dijeda. Lihat dokumentasi terbaru: https://supabase.com/docs/guides/platform/free-project-pausing dan https://supabase.com/docs/guides/platform/backups.
 
 ## Batasan
 
