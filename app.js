@@ -601,7 +601,7 @@ async function removeStorageObjects(paths) {
     if (error) throw error;
   }
 }
-async function downloadStoredFile(item) {
+async function downloadStoredFile(item, returnBlob = false) {
   const paths = getStoredPaths(item);
   if (!paths.length) throw new Error("Bagian file tidak ditemukan.");
   const pieces = [];
@@ -609,9 +609,10 @@ async function downloadStoredFile(item) {
     const { data, error } = await supabase.storage.from(STORAGE_BUCKET).download(paths[index]);
     if (error) throw error;
     pieces.push(data);
-    if (paths.length > 1) toast("Mengunduh bagian " + (index + 1) + " dari " + paths.length + "…");
+    if (paths.length > 1 && !returnBlob) toast("Mengunduh bagian " + (index + 1) + " dari " + paths.length + "…");
   }
   const blob = new Blob(pieces, { type: item.content_type || "application/octet-stream" });
+  if (returnBlob) return blob;
   const objectUrl = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = objectUrl; link.rel = "noopener"; link.download = item.file_name || "unduhan";
@@ -868,49 +869,59 @@ function saveBlob(blob, filename) {
   window.setTimeout(() => URL.revokeObjectURL(url), 30000);
 }
 async function exportEncryptedBackup() {
-  // Backup: semua pemegang kode akses memiliki hak yang sama.
   const passphrase = window.prompt("Buat password backup minimal 16 karakter. Simpan di tempat aman; tanpa password ini backup tidak bisa dipulihkan.");
   if (!passphrase) return;
   if (passphrase.length < 16) return toast("Password backup harus minimal 16 karakter.", "error");
   const confirmation = window.prompt("Ketik ulang password backup untuk konfirmasi.");
   if (confirmation !== passphrase) return toast("Konfirmasi password tidak cocok. Backup dibatalkan.", "error");
-  toast("Menyiapkan data dan lampiran untuk backup…", "success");
+  toast("Menyiapkan data, schedule, dan lampiran untuk backup…", "success");
   try {
-    const [tasksRes, commentsRes, attachmentsRes, activitiesRes] = await Promise.all([
+    const [tasksRes, commentsRes, attachmentsRes, contentRes, visitsRes, activitiesRes] = await Promise.all([
       supabase.from("tasks").select("*").order("created_at"),
       supabase.from("task_comments").select("*").order("created_at"),
       supabase.from("task_attachments").select("*").order("created_at"),
+      supabase.from("content_assets").select("*").order("created_at"),
+      supabase.from("visit_schedules").select("*").order("visit_date"),
       supabase.from("activity_log").select("*").order("created_at")
     ]);
-    for (const result of [tasksRes, commentsRes, attachmentsRes, activitiesRes]) {
+    for (const result of [tasksRes, commentsRes, attachmentsRes, contentRes, visitsRes, activitiesRes]) {
       if (result.error) throw result.error;
     }
-    const attachmentTotalBytes = (attachmentsRes.data || []).reduce((sum, item) => sum + Number(item.size_bytes || 0), 0);
-    if (attachmentTotalBytes > 300 * 1024 * 1024) {
-      throw new Error("Total lampiran melebihi 300 MB. Backup terenkripsi berbasis browser belum aman untuk paket sebesar ini. Simpan salinan file besar secara terpisah di media backup terenkripsi sebelum mengandalkan backup database.");
+    const attachments = attachmentsRes.data || [];
+    const contentAssets = contentRes.data || [];
+    const allFileBytes = [...attachments, ...contentAssets].reduce((sum, item) => sum + Number(item.size_bytes || 0), 0);
+    if (allFileBytes > 300 * 1024 * 1024) {
+      throw new Error("Total lampiran dan content melebihi 300 MiB. Backup terenkripsi berbasis browser belum aman untuk paket sebesar ini; simpan file berukuran besar di media cadangan terenkripsi terpisah.");
     }
     const { default: JSZip } = await import("https://cdn.jsdelivr.net/npm/jszip@3.10.1/+esm");
     const zip = new JSZip();
     const manifest = {
       format: "ruang-kerja-encrypted-backup",
-      version: 1,
+      version: 2,
       created_at: new Date().toISOString(),
-      profiles: state.profiles.map((p) => ({ id: p.id, display_name: p.display_name, role: p.role })),
+      profiles: state.profiles.map((p) => ({
+        id: p.id, display_name: p.display_name, access_label: p.access_label || p.display_name,
+        access_color: p.access_color || "#dc2626", role: p.role
+      })),
       tasks: tasksRes.data || [],
       comments: commentsRes.data || [],
-      attachments: attachmentsRes.data || [],
+      attachments,
+      contentAssets,
+      visitSchedules: visitsRes.data || [],
       activities: activitiesRes.data || []
     };
     zip.file("backup.json", JSON.stringify(manifest));
-    const attachmentRows = manifest.attachments;
-    for (let i = 0; i < attachmentRows.length; i++) {
-      const item = attachmentRows[i];
-      const { data: blob, error: downloadError } = await supabase.storage.from(STORAGE_BUCKET).download(item.path);
-      if (downloadError || !blob) throw new Error("Lampiran tidak bisa dibaca: " + item.file_name + (downloadError ? " — " + downloadError.message : ""));
+    for (let i = 0; i < attachments.length; i++) {
+      const item = attachments[i];
+      const blob = await downloadStoredFile(item, true);
       zip.file("files/" + item.id, blob);
-      if ((i + 1) % 5 === 0 || i === attachmentRows.length - 1) {
-        toast("Menyiapkan lampiran " + (i + 1) + "/" + attachmentRows.length + "…", "success");
-      }
+      if ((i + 1) % 5 === 0 || i === attachments.length - 1) toast("Menyiapkan lampiran tugas " + (i + 1) + "/" + attachments.length + "…", "success");
+    }
+    for (let i = 0; i < contentAssets.length; i++) {
+      const item = contentAssets[i];
+      const blob = await downloadStoredFile(item, true);
+      zip.file("content-files/" + item.id, blob);
+      if ((i + 1) % 5 === 0 || i === contentAssets.length - 1) toast("Menyiapkan file content " + (i + 1) + "/" + contentAssets.length + "…", "success");
     }
     const archive = await zip.generateAsync({ type: "uint8array", compression: "DEFLATE", compressionOptions: { level: 5 } });
     const salt = crypto.getRandomValues(new Uint8Array(16));
@@ -918,7 +929,7 @@ async function exportEncryptedBackup() {
     const key = await deriveBackupKey(passphrase, salt, ["encrypt"]);
     const encrypted = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, archive));
     const envelope = new Uint8Array(36 + encrypted.length);
-    envelope.set([82, 75, 87, 49, 0, 0, 0, 1], 0);
+    envelope.set([82, 75, 87, 49, 0, 0, 0, 2], 0);
     envelope.set(salt, 8); envelope.set(iv, 24); envelope.set(encrypted, 36);
     saveBlob(new Blob([envelope], { type: "application/octet-stream" }), "ruang-kerja-backup-" + new Date().toISOString().slice(0, 10) + ".rkbak");
     toast("Backup terenkripsi berhasil diunduh. Simpan salinan di tempat terpisah yang aman.", "success");
@@ -926,6 +937,7 @@ async function exportEncryptedBackup() {
     toast("Backup gagal: " + (error.message || "kesalahan yang tidak diketahui"), "error");
   }
 }
+
 async function insertInChunks(table, rows, chunkSize = 40) {
   for (let i = 0; i < rows.length; i += chunkSize) {
     const { error } = await supabase.from(table).insert(rows.slice(i, i + chunkSize));
@@ -933,41 +945,42 @@ async function insertInChunks(table, rows, chunkSize = 40) {
   }
 }
 async function restoreEncryptedBackup(file) {
-  // Backup: semua pemegang kode akses memiliki hak yang sama.
-  if (!file || file.size < 64 || file.size > 400 * 1024 * 1024) return toast("File backup tidak valid atau melebihi batas 400 MB.", "error");
+  if (!file || file.size < 64 || file.size > 400 * 1024 * 1024) return toast("File backup tidak valid atau melebihi batas 400 MiB.", "error");
   const passphrase = window.prompt("Masukkan password yang dipakai saat membuat backup.");
   if (!passphrase) return;
   toast("Memverifikasi dan membuka backup…", "success");
   try {
     const envelope = new Uint8Array(await file.arrayBuffer());
-    const magic = [82, 75, 87, 49, 0, 0, 0, 1];
-    if (!magic.every((value, index) => envelope[index] === value)) throw new Error("Format file backup tidak dikenali.");
+    const magic = [82, 75, 87, 49, 0, 0, 0, envelope[7]];
+    if (![1, 2].includes(envelope[7]) || !magic.every((value, index) => envelope[index] === value)) throw new Error("Format file backup tidak dikenali.");
+    const version = envelope[7];
     const salt = envelope.slice(8, 24);
     const iv = envelope.slice(24, 36);
     const encrypted = envelope.slice(36);
     const key = await deriveBackupKey(passphrase, salt, ["decrypt"]);
     let archive;
-    try {
-      archive = new Uint8Array(await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, encrypted));
-    } catch (_) {
-      throw new Error("Password salah atau file backup rusak.");
-    }
+    try { archive = new Uint8Array(await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, encrypted)); }
+    catch (_) { throw new Error("Password salah atau file backup rusak."); }
     const { default: JSZip } = await import("https://cdn.jsdelivr.net/npm/jszip@3.10.1/+esm");
     const zip = await JSZip.loadAsync(archive);
     const manifestFile = zip.file("backup.json");
     if (!manifestFile) throw new Error("Isi backup.json tidak ditemukan.");
     const backup = JSON.parse(await manifestFile.async("string"));
-    if (backup.format !== "ruang-kerja-encrypted-backup" || backup.version !== 1 ||
+    if (backup.format !== "ruang-kerja-encrypted-backup" || backup.version !== version ||
         !Array.isArray(backup.tasks) || !Array.isArray(backup.comments) ||
         !Array.isArray(backup.attachments) || !Array.isArray(backup.activities) ||
         !Array.isArray(backup.profiles)) throw new Error("Struktur backup tidak valid.");
+    const contentAssets = Array.isArray(backup.contentAssets) ? backup.contentAssets : [];
+    const visitSchedules = Array.isArray(backup.visitSchedules) ? backup.visitSchedules : [];
     const profileMap = {};
     backup.profiles.forEach((oldProfile) => {
-      const match = state.profiles.find((p) => p.role === oldProfile.role);
+      const oldLabel = oldProfile.access_label || oldProfile.display_name || "";
+      const match = state.profiles.find((p) => (p.access_label || p.display_name) === oldLabel) ||
+        state.profiles.find((p) => p.display_name === oldProfile.display_name) ||
+        state.profiles.find((p) => p.role === oldProfile.role) || state.profile;
       if (match) profileMap[oldProfile.id] = match.id;
     });
-    const mapProfile = (id) => id ? profileMap[id] : null;
-    if (backup.profiles.some((p) => !profileMap[p.id])) throw new Error("Role anggota backup tidak cocok dengan akun tim saat ini.");
+    const mapProfile = (id) => (id && profileMap[id]) || state.user.id;
     const { data: presentTasks, error: taskReadError } = await supabase.from("tasks").select("id");
     if (taskReadError) throw taskReadError;
     const taskIds = new Set((presentTasks || []).map((t) => t.id));
@@ -975,13 +988,11 @@ async function restoreEncryptedBackup(file) {
     const statusToRestore = [];
     for (const old of backup.tasks) {
       if (taskIds.has(old.id)) continue;
-      const createdBy = mapProfile(old.created_by);
       const assignedTo = mapProfile(old.assigned_to);
-      if (!createdBy || !assignedTo) throw new Error("PIC atau pembuat tugas tidak dapat dipetakan.");
       const payload = {
         id: old.id, title: old.title, description: old.description || "",
         due_date: old.due_date || null, due_time: old.due_time || null, priority: old.priority || "normal",
-        status: "todo", created_by: createdBy, assigned_to: assignedTo,
+        status: "todo", created_by: state.user.id, assigned_to: assignedTo,
         created_at: old.created_at
       };
       const { error } = await supabase.from("tasks").insert(payload);
@@ -990,17 +1001,21 @@ async function restoreEncryptedBackup(file) {
       if (old.status && old.status !== "todo") statusToRestore.push({ id: old.id, status: old.status });
     }
     for (const row of statusToRestore) {
-      const { error } = await supabase.from("tasks").update({ status: row.status }).eq("id", row.id);
-      if (error) throw error;
+      const staged = row.status === "in_progress" ? ["in_progress"] :
+        row.status === "in_review" ? ["in_review"] :
+        row.status === "changes_requested" ? ["in_progress", "in_review", "changes_requested"] :
+        ["approved", "done"].includes(row.status) ? ["in_review", "done"] : [];
+      for (const status of staged) {
+        const { error } = await supabase.from("tasks").update({ status }).eq("id", row.id);
+        if (error) throw error;
+      }
     }
     const { data: presentComments, error: commentReadError } = await supabase.from("task_comments").select("id");
     if (commentReadError) throw commentReadError;
     const commentIds = new Set((presentComments || []).map((r) => r.id));
     const missingComments = backup.comments.filter((c) => !commentIds.has(c.id)).map((c) => ({
-      id: c.id, task_id: c.task_id, user_id: mapProfile(c.user_id),
-      comment: c.comment, created_at: c.created_at
+      id: c.id, task_id: c.task_id, user_id: state.user.id, comment: c.comment, created_at: c.created_at
     }));
-    if (missingComments.some((c) => !c.user_id)) throw new Error("Penulis komentar tidak dapat dipetakan.");
     await insertInChunks("task_comments", missingComments);
     const { data: presentAttachments, error: attachmentReadError } = await supabase.from("task_attachments").select("id,path");
     if (attachmentReadError) throw attachmentReadError;
@@ -1008,33 +1023,69 @@ async function restoreEncryptedBackup(file) {
     const attachmentPaths = new Set((presentAttachments || []).map((r) => r.path));
     const missingMetadata = [];
     for (const item of backup.attachments) {
-      if (attachmentIds.has(item.id) || attachmentPaths.has(item.path)) continue;
+      if (attachmentIds.has(item.id)) continue;
       const entry = zip.file("files/" + item.id);
       if (!entry) throw new Error("Konten lampiran tidak ada di backup: " + item.file_name);
       const bytes = await entry.async("uint8array");
       const blob = new Blob([bytes], { type: item.content_type || "application/octet-stream" });
       const restoredFile = new File([blob], item.file_name, { type: item.content_type || "application/octet-stream" });
       const uploaded = await uploadPrivateFile(item.task_id, restoredFile);
-      const uploadedBy = mapProfile(item.uploaded_by);
-      if (!uploadedBy) throw new Error("Pemilik lampiran tidak dapat dipetakan.");
+      if (attachmentPaths.has(uploaded.path)) continue;
       missingMetadata.push({
-        id: item.id, task_id: item.task_id, path: uploaded.path,
+        id: item.id, task_id: item.task_id, path: uploaded.path, storage_parts: uploaded.storage_parts,
         file_name: item.file_name, content_type: item.content_type || "application/octet-stream",
-        size_bytes: item.size_bytes, uploaded_by: uploadedBy, created_at: item.created_at
+        size_bytes: restoredFile.size, uploaded_by: state.user.id, created_at: item.created_at,
+        attachment_type: item.attachment_type || "work"
       });
       attachmentIds.add(item.id); attachmentPaths.add(uploaded.path);
     }
     await insertInChunks("task_attachments", missingMetadata, 20);
+
+    const { data: presentContent, error: contentReadError } = await supabase.from("content_assets").select("id");
+    if (contentReadError) throw contentReadError;
+    const contentIds = new Set((presentContent || []).map((item) => item.id));
+    const missingContent = [];
+    for (const item of contentAssets) {
+      if (contentIds.has(item.id)) continue;
+      const entry = zip.file("content-files/" + item.id);
+      if (!entry) throw new Error("File content tidak ada di backup: " + item.file_name);
+      const bytes = await entry.async("uint8array");
+      const blob = new Blob([bytes], { type: item.content_type || "application/octet-stream" });
+      const restoredFile = new File([blob], item.file_name, { type: item.content_type || "application/octet-stream" });
+      const uploaded = await uploadPrivateFile("content", restoredFile);
+      missingContent.push({
+        id: item.id, content_group_id: item.content_group_id || crypto.randomUUID(), title: item.title,
+        caption: item.caption || "", scheduled_date: item.scheduled_date || null,
+        scheduled_time: item.scheduled_time || null, content_format: item.content_format || "feed",
+        status: item.status || "todo", revision_note: item.revision_note || "",
+        path: uploaded.path, storage_parts: uploaded.storage_parts, file_name: item.file_name,
+        content_type: item.content_type || "application/octet-stream", size_bytes: restoredFile.size,
+        uploaded_by: state.user.id, created_at: item.created_at
+      });
+      contentIds.add(item.id);
+    }
+    await insertInChunks("content_assets", missingContent, 20);
+
+    const { data: presentVisits, error: visitReadError } = await supabase.from("visit_schedules").select("id");
+    if (visitReadError) throw visitReadError;
+    const visitIds = new Set((presentVisits || []).map((item) => item.id));
+    const missingVisits = visitSchedules.filter((v) => !visitIds.has(v.id)).map((v) => ({
+      id: v.id, title: v.title, city: v.city, visit_date: v.visit_date, start_time: v.start_time,
+      end_date: v.end_date, end_time: v.end_time, job_description: v.job_description || "",
+      status: v.status || "planned", created_by: state.user.id, created_at: v.created_at, updated_at: v.updated_at || v.created_at
+    }));
+    await insertInChunks("visit_schedules", missingVisits, 40);
+
     const { data: presentActivity, error: activityReadError } = await supabase.from("activity_log").select("id");
     if (activityReadError) throw activityReadError;
     const activityIds = new Set((presentActivity || []).map((r) => r.id));
     const missingActivity = backup.activities.filter((a) => !activityIds.has(a.id)).map((a) => ({
-      id: a.id, task_id: a.task_id || null, actor_id: mapProfile(a.actor_id),
-      action: a.action, details: a.details || {}, created_at: a.created_at
+      id: a.id, task_id: a.task_id && taskIds.has(a.task_id) ? a.task_id : null,
+      actor_id: state.user.id, action: a.action, details: a.details || {}, created_at: a.created_at
     }));
     await insertInChunks("activity_log", missingActivity, 40);
     await loadWorkspace();
-    toast("Pemulihan selesai. " + restoredTasks + " tugas yang sebelumnya belum ada berhasil dipulihkan; data yang sudah ada tidak ditimpa.", "success");
+    toast("Pemulihan selesai. " + restoredTasks + " tugas baru dipulihkan; metadata dan file yang sudah ada tidak ditimpa.", "success");
   } catch (error) {
     toast("Pemulihan belum selesai: " + (error.message || "kesalahan yang tidak diketahui") + ". Kamu dapat mencoba lagi; catatan yang sudah ada tidak ditimpa.", "error");
   }
