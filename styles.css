@@ -2,3 +2,28 @@
 @media(max-width:1100px){.stats-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.dashboard-grid{grid-template-columns:minmax(0,1fr)}.page-content{padding:23px 23px 35px}.topbar{padding:16px 23px}.app-footer{padding:13px 23px}.today-label{display:none}.task-table th:nth-child(3),.task-table td:nth-child(3){display:none}}
 @media(max-width:760px){.sidebar{width:265px;transform:translateX(-101%);transition:transform .22s;box-shadow:none}.sidebar.mobile-open{transform:translateX(0);box-shadow:12px 0 32px #162e4c20}.workspace{margin-left:0}.mobile-menu{display:grid}.topbar{height:77px;padding:13px 16px;gap:11px}.topbar h1{font-size:17px}.topbar .eyebrow{font-size:8px}.topbar-right{gap:0}.topbar-right .btn{padding:9px 10px;font-size:10px}.page-content{padding:20px 14px 30px}.app-footer{padding:12px 15px;flex-direction:column;gap:4px}.page-heading{align-items:flex-start;flex-direction:column;margin-bottom:18px}.page-heading h2{font-size:19px}.heading-actions{width:100%}.stats-grid{gap:9px;margin-bottom:16px}.stat-card{padding:13px}.stat-top{font-size:10px;align-items:flex-start}.stat-icon{width:27px;height:27px;font-size:13px}.stat-value{font-size:24px;margin-top:10px}.stat-sub{font-size:9px}.task-row{padding:12px 13px;grid-template-columns:minmax(0,1fr);gap:8px}.task-actions{justify-content:space-between}.dashboard-grid{gap:13px}.panel-header{padding:14px}.panel-body{padding:13px}.toolbar{gap:7px}.search-box{min-width:100%;flex-basis:100%}.filter-select{flex:1;min-width:0}.task-table th{padding:10px 9px}.task-table td{padding:12px 9px}.task-table th:nth-child(3),.task-table td:nth-child(3){display:none}.task-table th:nth-child(4),.task-table td:nth-child(4){display:none}.table-task-button{max-width:190px}.table-description{max-width:190px}.status{font-size:9px;padding:5px 6px}.approval-card{grid-template-columns:minmax(0,1fr);gap:10px;padding:14px}.approval-actions{justify-content:flex-start}.file-row{padding:12px;grid-template-columns:34px minmax(0,1fr) auto;gap:8px}.file-type-icon{width:32px;height:32px}.form-grid{grid-template-columns:1fr}.field-span{grid-column:auto}.detail-metadata{grid-template-columns:repeat(2,minmax(0,1fr))}.modal-backdrop{padding:8px;align-items:flex-end}.modal-card,.modal-card.modal-wide{max-height:94vh;border-radius:15px 15px 8px 8px}.modal-header{padding:16px}.modal-body{padding:16px}.modal-footer{padding:13px 16px}.comment-form{align-items:stretch}.comment-form button{white-space:normal;max-width:100px}.auth-card{padding:25px 20px}.brand-lockup h1{font-size:22px}.brand-lockup{margin-bottom:25px}}
 @media(max-width:380px){.stats-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.topbar-right .btn{font-size:0;gap:0}.topbar-right .btn span{font-size:17px}.detail-metadata{grid-template-columns:1fr 1fr}.profile-row{gap:7px}}
+
+
+/* Shared content library panel */
+.content-upload-panel,
+.content-list-panel { margin-bottom: 18px; }
+.content-upload-panel .panel-body { padding: 22px; }
+.content-list { padding: 0 20px 18px; }
+.content-item { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; padding: 18px 0; border-bottom: 1px solid var(--line, #e5e9ef); }
+.content-item:last-child { border-bottom: 0; }
+.content-item-main { display: flex; align-items: flex-start; gap: 13px; min-width: 0; flex: 1; }
+.content-item-copy { min-width: 0; flex: 1; }
+.content-item-copy h3 { margin: 1px 0 7px; font-size: 15px; color: var(--ink, #19304b); overflow-wrap: anywhere; }
+.content-caption { margin: 0 0 11px; color: var(--muted, #66758a); white-space: pre-line; overflow-wrap: anywhere; line-height: 1.55; }
+.content-item-meta { display: flex; flex-wrap: wrap; gap: 6px 14px; color: var(--muted, #66758a); font-size: 12px; }
+.content-item-meta span { overflow-wrap: anywhere; }
+.content-item-actions { display: flex; flex-wrap: wrap; gap: 8px; flex-shrink: 0; }
+.btn-ghost { background: transparent; color: var(--muted, #66758a); border: 1px solid var(--line, #e5e9ef); }
+.btn-ghost:hover { background: #f8fafc; color: #a53b3b; }
+@media (max-width: 640px) {
+  .content-upload-panel .panel-body { padding: 16px; }
+  .content-list { padding: 0 16px 12px; }
+  .content-item { flex-direction: column; gap: 13px; }
+  .content-item-actions { width: 100%; }
+  .content-item-actions .btn { flex: 1; }
+}
