@@ -4,15 +4,19 @@
 
 create extension if not exists pgcrypto with schema extensions;
 
-create table public.access_invites (
+create schema if not exists private;
+revoke all on schema private from public, anon;
+
+create table private.access_invites (
   code_hash text primary key,
   role text not null check (role in ('member', 'manager')),
   used_at timestamptz,
   created_at timestamptz not null default now()
 );
-alter table public.access_invites enable row level security;
-revoke all on table public.access_invites from anon, authenticated;
-insert into public.access_invites (code_hash, role) values
+alter table private.access_invites enable row level security;
+revoke all on table private.access_invites from public, anon, authenticated;
+revoke all on table private.access_invites from anon, authenticated;
+insert into private.access_invites (code_hash, role) values
   ('e6e69e64b4d57804c79269f789dc12d844d73a796b4528eb9ce65ecfa120fb05', 'member'),
   ('7cd1c0e7763150dc0d25bb6efbae648283f65d563d9daea2e6d1ad2e49dc3162', 'manager')
 on conflict (code_hash) do nothing;
@@ -95,13 +99,13 @@ begin
   end if;
   v_hash := encode(digest(v_code, 'sha256'), 'hex');
   select role into v_role
-    from public.access_invites
+    from private.access_invites
    where code_hash = v_hash and used_at is null
    for update;
   if v_role is null then
     raise exception 'Kode undangan tidak valid atau sudah digunakan';
   end if;
-  update public.access_invites set used_at = now() where code_hash = v_hash;
+  update private.access_invites set used_at = now() where code_hash = v_hash;
   new.raw_user_meta_data := coalesce(new.raw_user_meta_data, '{}'::jsonb) - 'invite_code';
   new.raw_app_meta_data := jsonb_set(coalesce(new.raw_app_meta_data, '{}'::jsonb), '{team_role}', to_jsonb(v_role), true);
   return new;
