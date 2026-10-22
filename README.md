@@ -34,7 +34,7 @@ Jika butuh lampiran lebih besar dari 50 MB, kompres atau pecah dokumen jika sesu
 
 Database dan bucket privat sudah dibuat melalui migrasi. **Jangan jalankan ulang `supabase/schema.sql` di project yang sudah aktif ini**, karena file tersebut untuk instalasi baru. Project ini menggunakan `https://edgzffkhjtzejxjbtqib.supabase.co`; jangan pernah menaruh service-role/secret key ke browser.
 
-Pastikan Authentication → Providers → Email aktif. Setelah hosting aktif, tambahkan URL website ke Authentication → URL Configuration → Site URL dan Redirect URLs.
+Pastikan Authentication → Providers → **Anonymous Sign-Ins** aktif karena portal memakai kode akses tanpa email/password. Email provider tidak diperlukan untuk login portal ini. URL website tetap dapat dimasukkan pada Authentication → URL Configuration → Site URL.
 
 ### 2. Terbitkan antarmuka gratis lewat GitHub Pages
 
@@ -57,11 +57,12 @@ Untuk mengaktifkan login tanpa email, buka Supabase → Authentication → Provi
 ### 4. Uji sebelum dipakai
 
 Gunakan akun dummy dan file non-rahasia. Pastikan:
-- login/logout bekerja;
-- manager dapat membuat tugas dan melakukan approval;
-- anggota hanya dapat mengubah status dalam alur yang diperbolehkan;
-- file yang diunggah terlihat hanya untuk pengguna yang berhak pada tugas itu;
-- akun tanpa akses gagal membaca atau mengunduh lampiran;
+- login memakai kode permanen berhasil berulang kali;
+- pengguna yang memakai kode memiliki hak yang sama untuk tugas dan approval;
+- deadline menampilkan tanggal dan jam;
+- panel Content menyimpan judul, caption, tanggal, jam, dan file;
+- semua pemegang kode bisa mengunduh content dan lampiran tim;
+- orang tanpa sesi yang sah tidak dapat membaca atau mengunduh file;
 - backup terenkripsi dapat dibuat dan dipulihkan.
 
 ## Backup
