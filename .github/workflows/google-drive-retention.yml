@@ -1,0 +1,36 @@
+name: Google Drive 14-day retention
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Permanently delete files older than 14 days
+        env:
+          GDRIVE_CLEANUP_TOKEN: ${{ secrets.GDRIVE_CLEANUP_TOKEN }}
+        shell: bash
+        run: |
+          if [ -z "$GDRIVE_CLEANUP_TOKEN" ]; then
+            echo "::error::Add the GDRIVE_CLEANUP_TOKEN repository secret and the same secret to Supabase Edge Function Secrets."
+            exit 1
+          fi
+          response="$(curl --silent --show-error --fail-with-body \
+            -X POST "https://edgzffkhjtzejxjbtqib.supabase.co/functions/v1/google-drive-storage" \
+            -H "Content-Type: application/json" \
+            -H "x-retention-token: $GDRIVE_CLEANUP_TOKEN" \
+            --data '{"action":"scheduled-cleanup"}')"
+          echo "$response"
+          RESPONSE_JSON="$response" node --input-type=module -e '
+            const data = JSON.parse(process.env.RESPONSE_JSON || "{}");
+            if (!data.ok) {
+              console.error("Retention cleanup reported failures:", data.failed_items || data.error || "unknown");
+              process.exit(1);
+            }
+          '
