@@ -19,6 +19,8 @@ jobs:
         run: node --input-type=module --check < app.js
       - name: Check build script syntax
         run: node --check scripts/build.mjs
+      - name: Check Cloudflare file Worker syntax
+        run: node --check worker/r2-worker.js
       - name: Build public website assets
         run: npm run build
       - name: Verify deployment output excludes private backend files
