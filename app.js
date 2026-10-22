@@ -15,7 +15,7 @@ const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
 const state = {
   user: null, profile: null, profiles: [], tasks: [], comments: [], attachments: [], contentAssets: [], activities: [], visitSchedules: [],
-  view: "dashboard", selectedTaskId: null, loading: false
+  view: "dashboard", selectedTaskId: null, loading: false, googleDriveConnected: false
 };
 const STATUS = {
   todo: "Belum dimulai",
@@ -246,7 +246,7 @@ function renderApprovals() {
 }
 function renderFiles() {
   const items = state.attachments.slice().sort((a, b) => b.created_at.localeCompare(a.created_at));
-  return '<div class="page-heading"><div><h2>Arsip & file</h2><p>Lampiran kerja dan file contoh yang terkait dengan tugas.</p></div><div class="heading-actions"><button class="btn btn-secondary" data-backup-export>Backup terenkripsi</button><button class="btn btn-primary" data-backup-restore>Pulihkan backup</button></div></div><div class="file-warning"><strong>Perhatian:</strong><span>Hanya unggah file non-rahasia yang memang boleh disimpan di layanan cloud ini.</span></div><section class="panel"><div class="panel-header"><div><h3>Semua lampiran</h3><p>File pekerjaan dapat diajukan untuk approval. File contoh bersifat opsional.</p></div><span class="role-badge">' + items.length + ' file</span></div>' +
+  return '<div class="page-heading"><div><h2>Arsip & file</h2><p>Lampiran kerja dan file contoh yang terkait dengan tugas.</p></div><div class="heading-actions"><button class="btn btn-primary" data-connect-google-drive>' + (state.googleDriveConnected ? 'Hubungkan ulang Google Drive' : 'Hubungkan Google Drive') + '</button><button class="btn btn-secondary" data-backup-export>Backup terenkripsi</button><button class="btn btn-secondary" data-backup-restore>Pulihkan backup</button></div></div><div class="file-warning"><strong>Google Drive:</strong><span>' + (state.googleDriveConnected ? 'Terhubung — file baru disimpan ke folder Google Drive privat.' : 'Hubungkan Google Drive sebelum mengunggah file baru.') + '</span></div><div class="file-warning"><strong>Perhatian:</strong><span>Hanya unggah file non-rahasia yang memang boleh disimpan di layanan cloud ini.</span></div><section class="panel"><div class="panel-header"><div><h3>Semua lampiran</h3><p>File pekerjaan dapat diajukan untuk approval. File contoh bersifat opsional.</p></div><span class="role-badge">' + items.length + ' file</span></div>' +
     (items.length ? items.map((file) => {
       const task = taskById(file.task_id);
       const ext = (file.file_name.split(".").pop() || "FILE").slice(0, 5).toUpperCase();
@@ -365,6 +365,12 @@ async function loadWorkspace() {
   state.comments = commentsRes.data || [];
   state.attachments = attachmentsRes.data || [];
   state.contentAssets = contentRes.data || [];
+  try {
+    const driveStatus = await invokeGoogleDrive("status");
+    state.googleDriveConnected = Boolean(driveStatus.connected);
+  } catch {
+    state.googleDriveConnected = false;
+  }
   await cleanupExpiredFiles();
   state.activities = activityRes.data || [];
   state.visitSchedules = visitsRes.data || [];
@@ -569,10 +575,7 @@ function safeFilename(name) {
   return String(name || "file").normalize("NFKC").replace(/[^a-zA-Z0-9._-]+/g, "_").replace(/^[.]+/, "").slice(0, 100) || "file";
 }
 async function invokeBackblaze(action, payload = {}) {
-  if (!supabase) throw new Error("Supabase belum siap.");
-  const { data, error } = await supabase.functions.invoke("b2-storage", {
-    body: { action, ...payload }
-  });
+  const { data, error } = await supabase.functions.invoke("b2-storage", { body: { action, ...payload } });
   if (error) {
     let message = error.message || "Permintaan Backblaze gagal.";
     try {
@@ -580,13 +583,43 @@ async function invokeBackblaze(action, payload = {}) {
         const body = await error.context.clone().json();
         if (body && body.error) message = body.error;
       }
-    } catch { /* keep the SDK's error message */ }
+    } catch { /* keep SDK message */ }
     throw new Error(message);
   }
   if (data && data.error) throw new Error(String(data.error));
   return data || {};
 }
-
+async function invokeGoogleDrive(action, payload = {}) {
+  if (!supabase) throw new Error("Supabase belum siap.");
+  const { data, error } = await supabase.functions.invoke("google-drive-storage", { body: { action, ...payload } });
+  if (error) {
+    let message = error.message || "Permintaan Google Drive gagal.";
+    try {
+      if (error.context && typeof error.context.clone === "function") {
+        const body = await error.context.clone().json();
+        if (body && body.error) message = body.error;
+      }
+    } catch { /* keep SDK message */ }
+    throw new Error(message);
+  }
+  if (data && data.error) throw new Error(String(data.error));
+  return data || {};
+}
+async function connectGoogleDrive() {
+  const button = $("[data-connect-google-drive]");
+  if (button) { button.disabled = true; button.textContent = "Membuka Google…"; }
+  try {
+    const result = await invokeGoogleDrive("start-oauth");
+    if (!result.url) throw new Error("Google tidak mengembalikan alamat otorisasi.");
+    window.location.assign(result.url);
+  } catch (error) {
+    toast(error.message || "Google Drive belum bisa dihubungkan.", "error");
+    if (button) { button.disabled = false; button.textContent = state.googleDriveConnected ? "Hubungkan ulang Google Drive" : "Hubungkan Google Drive"; }
+  }
+}
+function safeFilename(name) {
+  return String(name || "file").normalize("NFKC").replace(/[^a-zA-Z0-9._-]+/g, "_").replace(/^[.]+/, "").slice(0, 100) || "file";
+}
 async function uploadPrivateFile(taskId, file, onPart = () => {}) {
   if (!file || file.size < 1) throw new Error("File kosong.");
   if (file.size > MAX_STORAGE_FILE_SIZE) throw new Error("File " + file.name + " melebihi batas aplikasi 800 MiB.");
@@ -595,47 +628,32 @@ async function uploadPrivateFile(taskId, file, onPart = () => {}) {
     : taskId + "/" + state.user.id + "/" + crypto.randomUUID();
   const totalParts = Math.ceil(file.size / STORAGE_CHUNK_SIZE);
   if (totalParts > 100) throw new Error("File ini membutuhkan lebih dari 100 bagian upload.");
-  const paths = [];
-  let provider = "backblaze";
+  const fileIds = [];
   try {
     for (let part = 0; part < totalParts; part++) {
       const start = part * STORAGE_CHUNK_SIZE;
       const end = Math.min(start + STORAGE_CHUNK_SIZE, file.size);
-      const partPath = rootPath + "/part-" + String(part + 1).padStart(4, "0");
-      const contentType = file.type || "application/octet-stream";
-      if (provider === "backblaze") {
-        let signed = null;
-        try {
-          signed = await invokeBackblaze("presign-upload", { key: partPath, contentType, size: end - start });
-        } catch (error) {
-          if (part === 0 && paths.length === 0 && /Backblaze belum dikonfigurasi/i.test(error.message || "")) {
-            provider = "supabase";
-            toast("Backblaze belum dikonfigurasi; upload ini sementara memakai Supabase Storage. Isi secret B2 untuk mengaktifkan storage baru.", "error");
-          } else {
-            throw error;
-          }
-        }
-        if (provider === "backblaze") {
-          const response = await fetch(signed.url, {
-            method: "PUT",
-            headers: { "Content-Type": contentType },
-            body: file.slice(start, end)
-          });
-          if (!response.ok) throw new Error("Backblaze menolak bagian " + (part + 1) + " (HTTP " + response.status + "). Periksa CORS dan konfigurasi bucket.");
-        }
+      const partKey = rootPath + "/part-" + String(part + 1).padStart(4, "0");
+      const mimeType = file.type || "application/octet-stream";
+      const session = await invokeGoogleDrive("start-upload", { key: partKey, mimeType, size: end - start });
+      if (!session.uploadUrl || !session.uploadUrl.startsWith("https://")) throw new Error("Sesi upload Google Drive tidak valid.");
+      const response = await fetch(session.uploadUrl, {
+        method: "PUT",
+        headers: { "Content-Type": mimeType },
+        body: file.slice(start, end)
+      });
+      if (!response.ok) {
+        const detail = await response.text().catch(() => "");
+        throw new Error("Upload ke Google Drive gagal (HTTP " + response.status + "). " + detail.slice(0, 180));
       }
-      if (provider === "supabase") {
-        const { error } = await supabase.storage.from(STORAGE_BUCKET).upload(partPath, file.slice(start, end), {
-          cacheControl: "0", contentType, upsert: false
-        });
-        if (error) throw error;
-      }
-      paths.push(partPath);
+      const result = await response.json().catch(() => ({}));
+      if (!result.id) throw new Error("Google Drive tidak mengembalikan ID file setelah upload.");
+      fileIds.push(result.id);
       onPart(part + 1, totalParts);
     }
-    return { path: rootPath, storage_parts: paths, size: file.size, storage_provider: provider };
+    return { path: rootPath, storage_parts: fileIds, size: file.size, storage_provider: "google_drive" };
   } catch (error) {
-    if (paths.length) await removeStorageObjects(paths, provider).catch(() => {});
+    if (fileIds.length) await removeStorageObjects(fileIds, "google_drive").catch(() => {});
     throw error;
   }
 }
@@ -643,7 +661,9 @@ async function removeStorageObjects(paths, provider = "supabase") {
   const uniquePaths = [...new Set((paths || []).filter((path) => typeof path === "string" && path))];
   for (let start = 0; start < uniquePaths.length; start += 100) {
     const batch = uniquePaths.slice(start, start + 100);
-    if (provider === "backblaze") {
+    if (provider === "google_drive") {
+      await invokeGoogleDrive("delete-objects", { ids: batch });
+    } else if (provider === "backblaze") {
       await invokeBackblaze("delete-objects", { keys: batch });
     } else {
       const { error } = await supabase.storage.from(STORAGE_BUCKET).remove(batch);
@@ -651,7 +671,6 @@ async function removeStorageObjects(paths, provider = "supabase") {
     }
   }
 }
-
 async function cleanupExpiredFiles() {
   const retentionMs = 14 * 24 * 60 * 60 * 1000;
   const cutoff = Date.now() - retentionMs;
@@ -685,7 +704,13 @@ async function downloadStoredFile(item, returnBlob = false) {
   if (!paths.length) throw new Error("Bagian file tidak ditemukan.");
   const pieces = [];
   for (let index = 0; index < paths.length; index++) {
-    if (item.storage_provider === "backblaze") {
+    if (item.storage_provider === "google_drive") {
+      const grant = await invokeGoogleDrive("download-token", { fileId: paths[index] });
+      if (!grant.url || !grant.accessToken) throw new Error("Google Drive tidak memberikan akses unduhan.");
+      const response = await fetch(grant.url, { headers: { Authorization: "Bearer " + grant.accessToken } });
+      if (!response.ok) throw new Error("Google Drive gagal mengirim bagian " + (index + 1) + " (HTTP " + response.status + ").");
+      pieces.push(await response.blob());
+    } else if (item.storage_provider === "backblaze") {
       const signed = await invokeBackblaze("presign-download", { key: paths[index] });
       const response = await fetch(signed.url);
       if (!response.ok) throw new Error("Backblaze gagal mengirim bagian " + (index + 1) + " (HTTP " + response.status + ").");
@@ -724,7 +749,7 @@ async function uploadTaskFile(form) {
       uploaded.push({ ...saved, ...entry });
     }
     const rows = uploaded.map(({ path, storage_parts, storage_provider, file, attachment_type }) => ({
-      task_id: task.id, path, storage_parts, storage_provider: storage_provider || "backblaze", file_name: file.name.slice(0, 255),
+      task_id: task.id, path, storage_parts, storage_provider: storage_provider || "google_drive", file_name: file.name.slice(0, 255),
       content_type: file.type || "application/octet-stream", size_bytes: file.size,
       uploaded_by: state.user.id, attachment_type
     }));
@@ -735,7 +760,7 @@ async function uploadTaskFile(form) {
     await refreshTaskDetail(task.id);
   } catch (error) {
     for (const item of uploaded) {
-      await removeStorageObjects(item.storage_parts || [item.path], item.storage_provider || "backblaze").catch(() => {});
+      await removeStorageObjects(item.storage_parts || [item.path], item.storage_provider || "google_drive").catch(() => {});
     }
     button.disabled = false;
     button.textContent = "Unggah lampiran terpilih";
@@ -806,7 +831,7 @@ async function uploadContent(form) {
     const rows = uploaded.map(({ path, storage_parts, storage_provider, file }) => ({
       content_group_id: groupId, title, caption, scheduled_date: scheduledDate,
       scheduled_time: scheduledTime, content_format: contentFormat, status: "todo", revision_note: "",
-      path, storage_parts, storage_provider: storage_provider || "backblaze", file_name: file.name.slice(0, 255), content_type: file.type || "application/octet-stream",
+      path, storage_parts, storage_provider: storage_provider || "google_drive", file_name: file.name.slice(0, 255), content_type: file.type || "application/octet-stream",
       size_bytes: file.size, uploaded_by: state.user.id
     }));
     const { error: metadataError } = await supabase.from("content_assets").insert(rows);
@@ -820,7 +845,7 @@ async function uploadContent(form) {
     await loadWorkspace();
   } catch (error) {
     for (const item of uploaded) {
-      await removeStorageObjects(item.storage_parts || [item.path], item.storage_provider || "backblaze").catch(() => {});
+      await removeStorageObjects(item.storage_parts || [item.path], item.storage_provider || "google_drive").catch(() => {});
     }
     button.disabled = false;
     button.textContent = "＋ Upload content";
@@ -1123,7 +1148,7 @@ async function restoreEncryptedBackup(file) {
       const uploaded = await uploadPrivateFile(item.task_id, restoredFile);
       if (attachmentPaths.has(uploaded.path)) continue;
       missingMetadata.push({
-        id: item.id, task_id: item.task_id, path: uploaded.path, storage_parts: uploaded.storage_parts, storage_provider: uploaded.storage_provider || "backblaze",
+        id: item.id, task_id: item.task_id, path: uploaded.path, storage_parts: uploaded.storage_parts, storage_provider: uploaded.storage_provider || "google_drive",
         file_name: item.file_name, content_type: item.content_type || "application/octet-stream",
         size_bytes: restoredFile.size, uploaded_by: state.user.id, created_at: item.created_at,
         attachment_type: item.attachment_type || "work"
@@ -1149,7 +1174,7 @@ async function restoreEncryptedBackup(file) {
         caption: item.caption || "", scheduled_date: item.scheduled_date || null,
         scheduled_time: item.scheduled_time || null, content_format: item.content_format || "feed",
         status: item.status || "todo", revision_note: item.revision_note || "",
-        path: uploaded.path, storage_parts: uploaded.storage_parts, storage_provider: uploaded.storage_provider || "backblaze", file_name: item.file_name,
+        path: uploaded.path, storage_parts: uploaded.storage_parts, storage_provider: uploaded.storage_provider || "google_drive", file_name: item.file_name,
         content_type: item.content_type || "application/octet-stream", size_bytes: restoredFile.size,
         uploaded_by: state.user.id, created_at: item.created_at
       });
@@ -1266,6 +1291,7 @@ document.addEventListener("click", async (event) => {
   if (nav) { changeView(nav.dataset.view); return; }
   if (event.target.closest("#test-telegram-button")) { toast("Mengirim tes notifikasi Telegram…", "success"); const sent = await notifyTelegram("task_status", "Tes notifikasi Telegram", "Tes koneksi", "Pesan percobaan dari portal Ruang Kerja."); if (sent) toast("Tes berhasil dikirim ke Telegram.", "success"); return; }
   if (event.target.closest("#new-task-top") || event.target.closest("[data-create-task]")) { openCreateModal(); return; }
+  if (event.target.closest("[data-connect-google-drive]")) { await connectGoogleDrive(); return; }
   const editVisit = event.target.closest("[data-edit-visit]");
   if (editVisit) { openVisitEditor(editVisit.dataset.editVisit); return; }
   const deleteVisit = event.target.closest("[data-delete-visit]");
