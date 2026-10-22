@@ -440,9 +440,39 @@ const MAX_STORAGE_FILE_SIZE = 50 * 1024 * 1024;
 async function notifyTelegram(eventType, title, status, details = "") {
   if (!supabase) return;
   try {
-    const { error } = await supabase.functions.invoke("notify-telegram", { body: { event_type: eventType, title: String(title || "").slice(0, 180), status: String(status || "").slice(0, 80), details: String(details || "").slice(0, 1200) } });
-    if (error) console.warn("Notifikasi Telegram belum terkirim:", error.message || error);
-  } catch (error) { console.warn("Notifikasi Telegram belum terkirim:", error?.message || error); }
+    const { data, error } = await supabase.functions.invoke("notify-telegram", {
+      body: {
+        event_type: eventType,
+        title: String(title || "").slice(0, 180),
+        status: String(status || "").slice(0, 80),
+        details: String(details || "").slice(0, 1200)
+      }
+    });
+    if (error) {
+      let message = error.message || "Permintaan notifikasi gagal.";
+      const response = error.context;
+      if (response && typeof response.clone === "function") {
+        try {
+          const body = await response.clone().json();
+          if (body?.error) message = body.error;
+        } catch { /* response did not contain JSON */ }
+      }
+      console.warn("Notifikasi Telegram gagal:", message);
+      toast("Notifikasi Telegram gagal: " + message, "error");
+      return;
+    }
+    if (data?.ok === false) {
+      const message = data.error || "Periksa token bot dan Chat ID.";
+      console.warn("Notifikasi Telegram gagal:", message);
+      toast("Notifikasi Telegram gagal: " + message, "error");
+    } else {
+      console.info("Notifikasi Telegram terkirim:", eventType);
+    }
+  } catch (error) {
+    const message = error?.message || "Kesalahan yang tidak diketahui.";
+    console.warn("Notifikasi Telegram gagal:", message);
+    toast("Notifikasi Telegram gagal: " + message, "error");
+  }
 }
 
 function safeFilename(name) {
