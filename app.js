@@ -305,9 +305,9 @@ function openTaskModal(taskId) {
   const comments = state.comments.filter((item) => item.task_id === taskId);
   const files = state.attachments.filter((item) => item.task_id === taskId);
   const actions = taskActionButtons(task);
-  $("#modal-root").innerHTML = '<div class="modal-backdrop" data-backdrop><section class="modal-card modal-wide" role="dialog" aria-modal="true" aria-labelledby="detail-task-title"><div class="modal-header"><div><div class="task-subline">' + statusBadge(task.status) + '<span class="priority-' + esc(task.priority) + '"><span class="priority-dot"></span>' + esc(PRIORITY[task.priority] || task.priority) + '</span></div><h2 id="detail-task-title" style="margin-top:7px">' + esc(task.title) + '</h2><p>Dibuat ' + esc(fmtDateTime(task.created_at)) + '</p></div><button class="icon-button close-modal" aria-label="Tutup">×</button></div><div class="modal-body"><div class="detail-metadata"><div class="detail-meta"><span>Penanggung jawab</span><strong>' + esc(profileName(task.assigned_to)) + '</strong></div><div class="detail-meta"><span>Deadline</span><strong class="' + (isLate(task) ? "due-overdue" : "") + '">' + esc(task.due_date ? fmtDate(task.due_date) : "Belum diatur") + '</strong></div><div class="detail-meta"><span>Dibuat oleh</span><strong>' + esc(profileName(task.created_by)) + '</strong></div></div><h3 class="section-subtitle" style="margin-top:15px">Deskripsi pekerjaan</h3><div class="detail-description">' + esc(task.description || "Belum ada deskripsi.") + '</div><div class="heading-actions" style="margin-top:14px">' + actions + '</div><div id="revision-box" class="modal-form-note" hidden><form id="revision-form"><label class="field-label" for="revision-note">Apa yang harus diperbaiki?</label><textarea id="revision-note" name="comment" required maxlength="3000" style="display:block;width:100%;margin:8px 0;border:1px solid #e3d2a9;border-radius:8px;padding:10px;font:inherit;min-height:75px" placeholder="Tuliskan catatan revisi yang jelas…"></textarea><button type="submit" class="btn btn-warning btn-small">Kirim permintaan revisi</button></form></div><h3 class="section-subtitle">Lampiran <span class="role-badge">' + files.length + '</span></h3><div class="file-warning"><strong>Privasi:</strong><span>Upload hanya file non-rahasia yang diizinkan. Upload mendukung semua jenis file dan file sangat besar lewat transfer multipart. File tidak punya link publik; akses lewat autentikasi. Paket gratis R2 mencakup 10 GB total; pemakaian di atas kuota ini bisa berbiaya.</span></div>' +
+  $("#modal-root").innerHTML = '<div class="modal-backdrop" data-backdrop><section class="modal-card modal-wide" role="dialog" aria-modal="true" aria-labelledby="detail-task-title"><div class="modal-header"><div><div class="task-subline">' + statusBadge(task.status) + '<span class="priority-' + esc(task.priority) + '"><span class="priority-dot"></span>' + esc(PRIORITY[task.priority] || task.priority) + '</span></div><h2 id="detail-task-title" style="margin-top:7px">' + esc(task.title) + '</h2><p>Dibuat ' + esc(fmtDateTime(task.created_at)) + '</p></div><button class="icon-button close-modal" aria-label="Tutup">×</button></div><div class="modal-body"><div class="detail-metadata"><div class="detail-meta"><span>Penanggung jawab</span><strong>' + esc(profileName(task.assigned_to)) + '</strong></div><div class="detail-meta"><span>Deadline</span><strong class="' + (isLate(task) ? "due-overdue" : "") + '">' + esc(task.due_date ? fmtDate(task.due_date) : "Belum diatur") + '</strong></div><div class="detail-meta"><span>Dibuat oleh</span><strong>' + esc(profileName(task.created_by)) + '</strong></div></div><h3 class="section-subtitle" style="margin-top:15px">Deskripsi pekerjaan</h3><div class="detail-description">' + esc(task.description || "Belum ada deskripsi.") + '</div><div class="heading-actions" style="margin-top:14px">' + actions + '</div><div id="revision-box" class="modal-form-note" hidden><form id="revision-form"><label class="field-label" for="revision-note">Apa yang harus diperbaiki?</label><textarea id="revision-note" name="comment" required maxlength="3000" style="display:block;width:100%;margin:8px 0;border:1px solid #e3d2a9;border-radius:8px;padding:10px;font:inherit;min-height:75px" placeholder="Tuliskan catatan revisi yang jelas…"></textarea><button type="submit" class="btn btn-warning btn-small">Kirim permintaan revisi</button></form></div><h3 class="section-subtitle">Lampiran <span class="role-badge">' + files.length + '</span></h3><div class="file-warning"><strong>Privasi:</strong><span>Upload hanya file non-rahasia yang diizinkan. File disimpan di bucket privat Supabase Storage tanpa link publik permanen. Paket gratis membatasi ukuran file maksimal 50 MB per file dan kapasitas total 1 GB.</span></div>' +
     (files.length ? files.map((file) => '<div class="file-row"><div class="file-type-icon">' + esc((file.file_name.split(".").pop() || "FILE").slice(0, 4).toUpperCase()) + '</div><div class="file-info"><strong>' + esc(file.file_name) + '</strong><p>' + esc(formatBytes(file.size_bytes)) + " · " + esc(fmtDateTime(file.created_at)) + '</p></div><button class="btn btn-secondary btn-small download-file" data-id="' + esc(file.id) + '">Unduh</button></div>').join("") : '<div class="empty-inline">Belum ada lampiran pada tugas ini.</div>') +
-    '<form id="upload-form" class="form-stack" style="gap:8px;margin-top:12px"><label for="task-file-input">Tambah file (semua jenis file)</label><input id="task-file-input" name="file" type="file" required><p class="field-help">File dikirim bertahap. Tidak ada batas 20 MB dari aplikasi; kuota penyimpanan akun tetap berlaku.</p><button class="btn btn-secondary" type="submit">Unggah lampiran</button></form><h3 class="section-subtitle">Komentar & catatan <span class="role-badge">' + comments.length + '</span></h3><div class="comment-list">' + (comments.length ? comments.map((c) => {
+    '<form id="upload-form" class="form-stack" style="gap:8px;margin-top:12px"><label for="task-file-input">Tambah file (semua jenis file)</label><input id="task-file-input" name="file" type="file" required><p class="field-help">Batas unggah per file adalah 50 MB pada paket gratis Supabase. Batas ini mengikuti pengaturan penyimpanan project.</p><button class="btn btn-secondary" type="submit">Unggah lampiran</button></form><h3 class="section-subtitle">Komentar & catatan <span class="role-badge">' + comments.length + '</span></h3><div class="comment-list">' + (comments.length ? comments.map((c) => {
       const author = state.profiles.find((p) => p.id === c.user_id);
       return '<article class="comment"><div class="comment-top"><strong>' + esc(author ? author.display_name : "Anggota tim") + '</strong><time>' + esc(fmtDateTime(c.created_at)) + '</time></div><p>' + esc(c.comment) + "</p></article>";
     }).join("") : '<div class="empty-inline">Belum ada komentar. Gunakan bagian ini untuk koordinasi.</div>') + '</div><form id="comment-form" class="comment-form"><textarea name="comment" rows="2" required maxlength="3000" placeholder="Tulis komentar atau update singkat…"></textarea><button type="submit" class="btn btn-primary btn-small">Kirim</button></form></div><div class="modal-footer"><button type="button" class="btn btn-secondary close-modal">Tutup</button></div></section></div>';
@@ -377,142 +377,69 @@ async function addComment(form) {
   if (error) return toast("Komentar belum terkirim: " + error.message, "error");
   await refreshTaskDetail(taskId);
 }
+const STORAGE_BUCKET = "ruang-kerja-files";
+const MAX_STORAGE_FILE_SIZE = 50 * 1024 * 1024;
+
 function safeFilename(name) {
-  return String(name || "file").normalize("NFKC").replace(/[^a-zA-Z0-9._-]+/g, "_").replace(/^\.+/, "").slice(0, 100) || "file";
+  return String(name || "file").normalize("NFKC").replace(/[^a-zA-Z0-9._-]+/g, "_").replace(/^\\.+/, "").slice(0, 100) || "file";
 }
-function getFileApiBase() {
-  const value = String(config.fileApiUrl || "").trim().replace(/\/+$/, "");
-  if (!value || value.includes("YOUR-WORKER-NAME") || !value.startsWith("https://")) {
-    throw new Error("File API belum disetel. Ikuti langkah Cloudflare R2 dan isi fileApiUrl di config.js.");
-  }
-  return value;
-}
-async function fileApiRequest(path, options = {}) {
-  const { data, error } = await supabase.auth.getSession();
-  if (error || !data.session) throw new Error("Sesi login berakhir. Silakan login kembali.");
-  const headers = new Headers(options.headers || {});
-  headers.set("Authorization", "Bearer " + data.session.access_token);
-  const response = await fetch(getFileApiBase() + path, { ...options, headers });
-  return response;
-}
-async function fileApiJson(response) {
-  let payload = {};
-  try { payload = await response.json(); } catch (_) {}
-  if (!response.ok) throw new Error(payload.error || payload.message || "Permintaan file gagal (HTTP " + response.status + ").");
-  return payload;
-}
-async function uploadLargeFile(taskId, file, onProgress = () => {}) {
-  const partLimit = 90 * 1024 * 1024;
-  const maxFileSize = partLimit * 10000;
+async function uploadPrivateFile(taskId, file) {
   if (!file || file.size < 1) throw new Error("File kosong.");
-  if (file.size > maxFileSize) throw new Error("File melebihi batas transfer teknis sekitar 625 GiB per file. Pecah menjadi beberapa file.");
-  let upload = null;
-  let completed = false;
-  try {
-    const initResponse = await fileApiRequest("/upload/init", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ taskId, filename: file.name, contentType: file.type || "application/octet-stream", size: file.size })
-    });
-    upload = await fileApiJson(initResponse);
-    const partSize = Number(upload.partSize);
-    const maxParts = Number(upload.maxParts);
-    if (!upload.key || !upload.uploadId || !Number.isFinite(partSize) || partSize <= 0) {
-      throw new Error("Worker mengembalikan detail upload yang tidak valid.");
-    }
-    const totalParts = Math.ceil(file.size / partSize);
-    if (totalParts > maxParts) throw new Error("File terlalu besar untuk jumlah bagian upload yang diizinkan.");
-    const parts = [];
-    for (let partNumber = 1; partNumber <= totalParts; partNumber++) {
-      const chunkStart = (partNumber - 1) * partSize;
-      const chunkEnd = Math.min(chunkStart + partSize, file.size);
-      onProgress(Math.round(((partNumber - 1) / totalParts) * 100), partNumber, totalParts);
-      const partResponse = await fileApiRequest("/upload/part", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/octet-stream",
-          "X-Task-Id": taskId,
-          "X-Object-Key": upload.key,
-          "X-Upload-Id": upload.uploadId,
-          "X-Part-Number": String(partNumber)
-        },
-        body: file.slice(chunkStart, chunkEnd)
-      });
-      const result = await fileApiJson(partResponse);
-      if (!result.etag || result.partNumber !== partNumber) throw new Error("Bagian file ke-" + partNumber + " belum terkonfirmasi.");
-      parts.push({ partNumber, etag: result.etag });
-      onProgress(Math.round((partNumber / totalParts) * 100), partNumber, totalParts);
-    }
-    const completeResponse = await fileApiRequest("/upload/complete", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ taskId, key: upload.key, uploadId: upload.uploadId, parts, size: file.size })
-    });
-    await fileApiJson(completeResponse);
-    completed = true;
-    return { path: upload.key, size: file.size };
-  } catch (error) {
-    if (upload && upload.key && upload.uploadId) {
-      try {
-        const endpoint = completed ? "/object/delete" : "/upload/abort";
-        await fileApiRequest(endpoint, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ taskId, key: upload.key, uploadId: upload.uploadId })
-        });
-      } catch (_) {}
-    }
-    throw error;
+  if (file.size > MAX_STORAGE_FILE_SIZE) {
+    throw new Error("Ukuran maksimum per file pada paket Supabase gratis adalah 50 MB. Kompres atau pecah file menjadi beberapa file lebih kecil.");
   }
+  const path = taskId + "/" + state.user.id + "/" + crypto.randomUUID() + "-" + safeFilename(file.name);
+  const { data, error } = await supabase.storage.from(STORAGE_BUCKET).upload(path, file, {
+    cacheControl: "0",
+    contentType: file.type || "application/octet-stream",
+    upsert: false
+  });
+  if (error) throw new Error(error.message || "Supabase Storage gagal menerima file.");
+  return { path: data.path || path, size: file.size };
 }
 async function uploadTaskFile(form) {
   const task = taskById(state.selectedTaskId);
   const file = $("#task-file-input")?.files?.[0];
   if (!task || !file) return;
   const button = $('button[type="submit"]', form);
+  if (file.size > MAX_STORAGE_FILE_SIZE) {
+    return toast("Maksimum 50 MB per file pada paket gratis. Kompres atau pecah file terlebih dahulu.", "error");
+  }
   button.disabled = true;
-  button.textContent = "Menyiapkan upload…";
+  button.textContent = "Mengunggah ke Supabase…";
+  let uploaded = null;
   try {
-    const uploaded = await uploadLargeFile(task.id, file, (percent, part, total) => {
-      button.textContent = "Mengunggah " + percent + "% (" + part + "/" + total + ")";
-    });
+    uploaded = await uploadPrivateFile(task.id, file);
     const { error: metaError } = await supabase.from("task_attachments").insert({
-      task_id: task.id, path: uploaded.path, file_name: file.name.slice(0, 255),
-      content_type: file.type || "application/octet-stream", size_bytes: file.size, uploaded_by: state.user.id
+      task_id: task.id,
+      path: uploaded.path,
+      file_name: file.name.slice(0, 255),
+      content_type: file.type || "application/octet-stream",
+      size_bytes: file.size,
+      uploaded_by: state.user.id
     });
     if (metaError) {
-      try {
-        await fileApiRequest("/object/delete", {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ taskId: task.id, key: uploaded.path })
-        });
-      } catch (_) {}
-      throw new Error("File terunggah, tetapi catatan lampiran gagal tersimpan. " + metaError.message);
+      await supabase.storage.from(STORAGE_BUCKET).remove([uploaded.path]);
+      throw new Error("File sudah masuk penyimpanan, tetapi catatan lampiran gagal disimpan. " + metaError.message);
     }
     toast("Lampiran berhasil diunggah (" + formatBytes(file.size) + ").");
     await refreshTaskDetail(task.id);
   } catch (error) {
     button.disabled = false;
     button.textContent = "Unggah lampiran";
-    toast("Upload belum selesai: " + (error.message || "periksa konfigurasi R2/Worker"), "error");
+    toast("Upload belum selesai: " + (error.message || "periksa koneksi atau kuota Supabase"), "error");
   }
-}
-async function requestDownloadTicket(path) {
-  const response = await fileApiRequest("/download-ticket", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ key: path })
-  });
-  return fileApiJson(response);
 }
 async function downloadFile(attachmentId) {
   const file = state.attachments.find((item) => item.id === attachmentId);
   if (!file) return toast("Lampiran tidak ditemukan.", "error");
   try {
-    const result = await requestDownloadTicket(file.path);
-    if (!result.url) throw new Error("Worker tidak memberikan tautan unduhan.");
+    const { data, error } = await supabase.storage.from(STORAGE_BUCKET)
+      .createSignedUrl(file.path, 60, { download: file.file_name });
+    if (error) throw error;
+    if (!data?.signedUrl) throw new Error("Supabase tidak memberikan tautan unduhan.");
     const link = document.createElement("a");
-    link.href = result.url;
+    link.href = data.signedUrl;
     link.rel = "noopener";
     link.download = file.file_name;
     document.body.appendChild(link);
@@ -522,6 +449,7 @@ async function downloadFile(attachmentId) {
     toast("File tidak dapat diunduh: " + (error.message || "kesalahan tidak diketahui"), "error");
   }
 }
+
 async function deriveBackupKey(passphrase, salt, usages) {
   const material = await crypto.subtle.importKey("raw", new TextEncoder().encode(passphrase), "PBKDF2", false, ["deriveKey"]);
   return crypto.subtle.deriveKey(
@@ -574,10 +502,8 @@ async function exportEncryptedBackup() {
     const attachmentRows = manifest.attachments;
     for (let i = 0; i < attachmentRows.length; i++) {
       const item = attachmentRows[i];
-      const ticket = await requestDownloadTicket(item.path);
-      const response = await fetch(ticket.url);
-      if (!response.ok) throw new Error("Lampiran tidak bisa dibaca: " + item.file_name);
-      const blob = await response.blob();
+      const { data: blob, error: downloadError } = await supabase.storage.from(STORAGE_BUCKET).download(item.path);
+      if (downloadError || !blob) throw new Error("Lampiran tidak bisa dibaca: " + item.file_name + (downloadError ? " — " + downloadError.message : ""));
       zip.file("files/" + item.id, blob);
       if ((i + 1) % 5 === 0 || i === attachmentRows.length - 1) {
         toast("Menyiapkan lampiran " + (i + 1) + "/" + attachmentRows.length + "…", "success");
@@ -685,7 +611,7 @@ async function restoreEncryptedBackup(file) {
       const bytes = await entry.async("uint8array");
       const blob = new Blob([bytes], { type: item.content_type || "application/octet-stream" });
       const restoredFile = new File([blob], item.file_name, { type: item.content_type || "application/octet-stream" });
-      const uploaded = await uploadLargeFile(item.task_id, restoredFile);
+      const uploaded = await uploadPrivateFile(item.task_id, restoredFile);
       const uploadedBy = mapProfile(item.uploaded_by);
       if (!uploadedBy) throw new Error("Pemilik lampiran tidak dapat dipetakan.");
       missingMetadata.push({
