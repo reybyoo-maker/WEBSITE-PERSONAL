@@ -12,7 +12,7 @@ Repository saat ini bersifat **PUBLIC**. Source code boleh berada di sini, tetap
 
 Pembatasan 20 MB di aplikasi sudah dihapus. Form menerima berbagai tipe file, lalu mengunggahnya ke Cloudflare R2 menggunakan multipart upload bertahap, jadi unggahan dapat menangani file sangat besar dan tidak perlu mengirim seluruh file sebagai satu request. Unduhan mengalir langsung dari Worker agar file besar tidak ditampung seluruhnya di memori browser.
 
-Batas teknis implementasi sekarang sekitar **879 GiB per file** (10.000 bagian × 64 MiB per bagian). Ini bukan ukuran penyimpanan total tanpa batas: paket gratis R2 mencakup **10 GB-month storage**, 1 juta operasi Class A dan 10 juta Class B per bulan; penggunaan di atas kuota gratis dapat dikenakan biaya. Egress R2 tidak dikenakan biaya. Referensi: https://developers.cloudflare.com/r2/pricing/ dan https://developers.cloudflare.com/r2/objects/upload-objects/.
+Batas teknis implementasi sekarang sekitar **879 GiB per file** (10.000 bagian × 90 MiB per bagian). Ini bukan ukuran penyimpanan total tanpa batas: paket gratis R2 mencakup **10 GB-month storage**, 1 juta operasi Class A dan 10 juta Class B per bulan; penggunaan di atas kuota gratis dapat dikenakan biaya. Egress R2 tidak dikenakan biaya. Referensi: https://developers.cloudflare.com/r2/pricing/ dan https://developers.cloudflare.com/r2/objects/upload-objects/.
 
 Jika total file tim melebihi 10 GB dan harus selalu gratis, tidak ada layanan cloud publik yang dapat menjamin storage tanpa batas. Jangan aktifkan billing/overage kalau tidak ingin ada biaya. Pilih penyimpanan server/perangkat milik instansi dengan kapasitas yang memang tersedia dan persetujuan administrator IT.
 
