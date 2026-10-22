@@ -1,3 +1,4 @@
+# Keep deployment workflow active for the current Google Drive integration.
 name: Deploy Ruang Kerja to GitHub Pages
 
 on:
