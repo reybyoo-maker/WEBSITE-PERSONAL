@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#142d4e">
+  <meta name="description" content="Portal kerja pribadi untuk tugas, deadline, approval, revisi, dan arsip kerja.">
+  <title>Ruang Kerja — Portal Tim</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='10' fill='%23142d4e'/%3E%3Cpath d='M12 12h16v4H12zm0 7h16v4H12zm0 7h10v4H12z' fill='white'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <div id="auth-shell" class="auth-shell">
+    <main class="auth-card">
+      <div class="brand-lockup">
+        <div class="brand-mark" aria-hidden="true">RK</div>
+        <div><p class="eyebrow">PORTAL TIM PRIBADI</p><h1>Ruang Kerja</h1><p class="muted">Satu tempat untuk tugas, deadline, dan persetujuan.</p></div>
+      </div>
+      <div id="config-warning" class="notice notice-warning" hidden></div>
+      <section id="login-view">
+        <h2>Selamat datang kembali</h2>
+        <p class="muted">Masuk menggunakan akun pribadi kamu.</p>
+        <form id="login-form" class="form-stack">
+          <label>Email<input name="email" type="email" autocomplete="username" required maxlength="254" placeholder="nama@email.com"></label>
+          <label>Password<input name="password" type="password" autocomplete="current-password" required minlength="10" placeholder="Password akun kamu"></label>
+          <button class="btn btn-primary btn-full" type="submit">Masuk ke ruang kerja</button>
+        </form>
+        <p class="switch-auth">Pertama kali menggunakan portal? <button class="link-button" type="button" data-auth-mode="register">Daftar dengan kode undangan</button></p>
+      </section>
+      <section id="register-view" hidden>
+        <h2>Aktivasi akun</h2>
+        <p class="muted">Kode undangan unik hanya bisa digunakan satu kali. Role akun ditentukan oleh kode, bukan pilihan pengguna.</p>
+        <form id="register-form" class="form-stack">
+          <label>Nama tampilan<input name="full_name" type="text" autocomplete="name" required maxlength="80" placeholder="Nama kamu"></label>
+          <label>Email<input name="email" type="email" autocomplete="email" required maxlength="254" placeholder="nama@email.com"></label>
+          <label>Password<input name="password" type="password" autocomplete="new-password" required minlength="12" placeholder="Minimal 12 karakter"></label>
+          <label>Kode undangan pribadi<input name="invite_code" type="password" autocomplete="off" required minlength="20" maxlength="80" spellcheck="false" placeholder="Masukkan kode dari admin portal"></label>
+          <button class="btn btn-primary btn-full" type="submit">Aktifkan akun</button>
+        </form>
+        <p class="switch-auth">Sudah punya akun? <button class="link-button" type="button" data-auth-mode="login">Kembali ke login</button></p>
+      </section>
+      <div id="auth-message" class="notice" role="status" aria-live="polite" hidden></div>
+      <div class="security-note"><span class="security-dot" aria-hidden="true"></span><div><strong>Gunakan hanya untuk data yang diizinkan.</strong><p>Jangan unggah dokumen rahasia negara/berklasifikasi ke layanan ini tanpa persetujuan tertulis dari instansi yang berwenang.</p></div></div>
+      <p class="tiny muted auth-footer">Akses tiap orang terpisah. Jangan bagikan password atau kode undangan.</p>
+    </main>
+  </div>
+
+  <div id="app-shell" class="app-shell" hidden>
+    <aside id="sidebar" class="sidebar">
+      <a href="#dashboard" class="side-brand" aria-label="Ruang Kerja beranda"><span class="brand-mark">RK</span><span><strong>Ruang Kerja</strong><small>PORTAL TIM</small></span></a>
+      <div class="nav-label">WORKSPACE</div>
+      <nav class="main-nav" aria-label="Navigasi utama">
+        <button class="nav-item active" data-view="dashboard"><span class="nav-icon">▦</span>Dashboard</button>
+        <button class="nav-item" data-view="tasks"><span class="nav-icon">☷</span>Semua pekerjaan<span id="nav-task-count" class="nav-count">0</span></button>
+        <button class="nav-item" data-view="approvals"><span class="nav-icon">✓</span>Approval & revisi<span id="nav-approval-count" class="nav-count">0</span></button>
+        <button class="nav-item" data-view="files"><span class="nav-icon">▤</span>Arsip & file</button>
+        <button class="nav-item" data-view="activity"><span class="nav-icon">◷</span>Riwayat aktivitas</button>
+      </nav>
+      <div class="sidebar-bottom">
+        <div class="privacy-card"><span class="privacy-icon">◈</span><div><strong>Ruang privat</strong><p>Akses dibatasi akun tim.</p></div></div>
+        <div class="profile-row"><div id="profile-avatar" class="avatar">RK</div><div class="profile-meta"><strong id="profile-name">Pengguna</strong><span id="profile-role">Anggota</span></div><button id="logout-button" class="icon-button" title="Keluar" aria-label="Keluar">↪</button></div>
+      </div>
+    </aside>
+
+    <div class="workspace">
+      <header class="topbar"><button id="mobile-menu-button" class="icon-button mobile-menu" aria-label="Buka menu">☰</button><div><p class="eyebrow">WORKSPACE / TIM</p><h1 id="page-title">Dashboard</h1></div><div class="topbar-right"><span id="today-label" class="today-label"></span><button id="new-task-top" class="btn btn-primary"><span aria-hidden="true">＋</span> Buat tugas</button></div></header>
+      <main id="page-content" class="page-content" tabindex="-1"></main>
+      <footer class="app-footer"><span>Ruang Kerja</span><span>Jaga kerahasiaan dan gunakan hanya file yang diizinkan.</span></footer>
+    </div>
+  </div>
+
+  <div id="modal-root"></div>
+  <div id="toast-region" class="toast-region" aria-live="polite" aria-atomic="true"></div>
+  <script src="./config.js"></script>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
