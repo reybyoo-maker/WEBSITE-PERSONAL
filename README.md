@@ -80,14 +80,20 @@ Sebelum mencoba menghubungkan Google, publikasikan UI terbaru sekali: buka [work
 
 ### A. Siapkan Google Cloud dan OAuth
 
-1. Buka [Google Cloud Console](https://console.cloud.google.com/) dan buat atau pilih project.
-2. Di **APIs & Services → Library**, cari dan aktifkan **Google Drive API**.
-3. Di **Google Auth Platform / OAuth consent screen**, lengkapi nama aplikasi dan email dukungan. Jika status masih **Testing**, tambahkan akun Google kamu sebagai **Test user**.
-4. Buka **Clients → Create client → Web application**. Tambahkan Authorized redirect URI ini persis:
+1. Buka [Google Cloud Console](https://console.cloud.google.com/) dan buat atau pilih project. Pastikan project yang sama tetap dipilih di bagian atas konsol.
+2. Buka **APIs & Services → Library**, cari **Google Drive API**, buka halaman API tersebut, lalu tekan **Enable**.
+3. Buka **Google Auth Platform → Branding**. Jika muncul **Get started**, klik. Isi **App name** dengan `Ruang Kerja Rey`, pilih email kamu pada **User support email**, isi **Developer contact information** dengan email yang bisa kamu akses, lalu **Save**.
+4. Buka **Google Auth Platform → Audience**. Untuk akun Gmail pribadi, pilih **External**. Di bagian **Test users**, klik **Add users**, masukkan alamat Gmail yang akan menyimpan file, lalu **Save**.
+5. Buka **Google Auth Platform → Data Access**. Klik **Add or remove scopes**. Cari atau tambahkan scope ini saja, lalu simpan:
+   `https://www.googleapis.com/auth/drive.file`
+   Scope di konsol harus cocok dengan scope yang diminta aplikasi. Jangan menambahkan `drive` yang memberi akses lebih luas ke seluruh Drive. Referensi resmi: [Drive API scopes](https://developers.google.com/workspace/drive/api/guides/api-specific-auth).
+6. Buka **Google Auth Platform → Clients**, pilih **Create client**, pilih **Application type: Web application**, lalu beri nama `Ruang Kerja Rey Web OAuth`.
+7. Pada **Authorized redirect URIs**, klik **Add URI** dan tempel alamat ini persis (tanpa spasi dan tanpa slash tambahan di ujung):
    `https://edgzffkhjtzejxjbtqib.supabase.co/functions/v1/google-drive-storage`
-5. Salin **Client ID** dan **Client Secret**.
+   **Authorized JavaScript origins** boleh dibiarkan kosong karena callback OAuth ditangani oleh backend Supabase.
+8. Klik **Create**. Pada kotak yang muncul, salin **Client ID** dan **Client Secret**. Simpan sementara secara pribadi; jangan ditempel di website atau GitHub.
 
-Scope yang diminta adalah `https://www.googleapis.com/auth/drive.file`, yang membatasi akses ke file yang dibuat atau dibuka oleh aplikasi ini. Google mengelompokkan scope tersebut sebagai non-sensitive dan merekomendasikannya untuk akses yang lebih sempit. Jika aplikasi External tetap berstatus Testing, refresh token biasanya kedaluwarsa setelah 7 hari; untuk penggunaan jangka panjang ubah Publishing status ke **In production** dan ikuti proses yang diminta Google. Referensi: [OAuth web server flow](https://developers.google.com/identity/protocols/oauth2/web-server) dan [aturan refresh token](https://developers.google.com/identity/protocols/oauth2/).
+Scope `https://www.googleapis.com/auth/drive.file` membatasi izin pada file yang dibuat/digunakan oleh aplikasi. Google menjelaskan bahwa untuk External app berstatus **Testing**, persetujuan pengguna akan kedaluwarsa setelah 7 hari. Artinya, untuk jadwal hapus otomatis 14 hari, **Testing hanya cocok untuk uji coba**. Setelah uji awal, buka **Google Auth Platform → Audience → Publishing status → Publish app / In production**, dan ikuti langkah verifikasi yang diminta konsol Google. Google tetap dapat menampilkan peringatan aplikasi belum diverifikasi sampai proses yang berlaku selesai. Referensi: [OAuth refresh-token expiry](https://developers.google.com/identity/protocols/oauth2/) dan [Audience/publishing status](https://support.google.com/cloud/answer/15549945).
 
 ### B. Simpan tiga secrets di Supabase
 
