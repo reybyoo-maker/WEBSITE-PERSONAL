@@ -21,18 +21,26 @@ revoke all on table private.access_invites from anon, authenticated;
 create table if not exists private.shared_access_codes (
   code_hash text primary key,
   enabled boolean not null default true,
+  label text not null default 'Kode 1',
+  color text not null default '#dc2626',
   created_at timestamptz not null default now()
 );
+alter table private.shared_access_codes add column if not exists label text not null default 'Kode 1';
+alter table private.shared_access_codes add column if not exists color text not null default '#dc2626';
 alter table private.shared_access_codes enable row level security;
 revoke all on table private.shared_access_codes from public, anon, authenticated;
-insert into private.shared_access_codes (code_hash, enabled)
-values ('a81e6971ddccc89162cac77a91512c87a90fc822e45963907bab25617296ed6d', true)
+insert into private.shared_access_codes (code_hash, enabled, label, color)
+values
+  ('a81e6971ddccc89162cac77a91512c87a90fc822e45963907bab25617296ed6d', true, 'Kode 1', '#dc2626'),
+  ('fe54512c43e4771bdbe70a3e8e4f8673ad6bfa40dac407da2f780bb454e34b43', true, 'Kode 2', '#ec4899')
 on conflict (code_hash) do update set enabled = true;
 
 create table public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   display_name text not null default 'Anggota',
   role text not null check (role in ('member', 'manager')),
+  access_label text not null default 'Kode 1',
+  access_color text not null default '#dc2626',
   created_at timestamptz not null default now()
 );
 alter table public.profiles enable row level security;
@@ -153,44 +161,27 @@ after insert on auth.users
 for each row execute function public.create_profile_for_invited_user();
 
 create or replace function public.activate_access_code(p_code text)
-returns boolean
-language plpgsql
-security definer
-set search_path = ''
-as $$
+returns boolean language plpgsql security definer set search_path = '' as $$
 declare
   v_user_id uuid := (select auth.uid());
   v_normalized text;
   v_hash text;
-  v_valid boolean;
+  v_label text;
+  v_color text;
 begin
-  if v_user_id is null then
-    raise exception 'Sesi akses tidak tersedia. Coba masuk kembali.';
-  end if;
-
-  if not exists (
-    select 1 from auth.users u
-    where u.id = v_user_id and coalesce(u.is_anonymous, false)
-  ) then
+  if v_user_id is null then raise exception 'Sesi akses tidak tersedia. Coba masuk kembali.'; end if;
+  if not exists (select 1 from auth.users u where u.id = v_user_id and coalesce(u.is_anonymous, false)) then
     raise exception 'Sesi bukan sesi kode akses.';
   end if;
-
   v_normalized := upper(regexp_replace(coalesce(p_code, ''), '\s+', '', 'g'));
-  if length(v_normalized) < 20 or length(v_normalized) > 80 then
-    return false;
-  end if;
+  if length(v_normalized) < 20 or length(v_normalized) > 80 then return false; end if;
   v_hash := encode(extensions.digest(convert_to(v_normalized, 'UTF8'), 'sha256'), 'hex');
-  select exists (
-    select 1 from private.shared_access_codes c
-    where c.code_hash = v_hash and c.enabled = true
-  ) into v_valid;
-  if not v_valid then
-    return false;
-  end if;
-
-  insert into public.profiles (id, display_name, role)
-  values (v_user_id, 'Pengguna Ruang Kerja', 'manager')
-  on conflict (id) do update set role = 'manager';
+  select c.label, c.color into v_label, v_color from private.shared_access_codes c where c.code_hash = v_hash and c.enabled = true;
+  if v_label is null then return false; end if;
+  insert into public.profiles (id, display_name, role, access_label, access_color)
+  values (v_user_id, v_label, 'manager', v_label, v_color)
+  on conflict (id) do update set display_name = excluded.display_name, role = 'manager',
+    access_label = excluded.access_label, access_color = excluded.access_color;
   return true;
 end;
 $$;
@@ -273,8 +264,9 @@ create table public.task_attachments (
   path text not null unique,
   file_name text not null check (char_length(file_name) between 1 and 255),
   content_type text not null default 'application/octet-stream',
-  size_bytes bigint not null check (size_bytes > 0 and size_bytes <= 52428800),
+  size_bytes bigint not null check (size_bytes > 0 and size_bytes <= 838860800),
   uploaded_by uuid not null references public.profiles(id),
+  storage_parts jsonb not null default '[]'::jsonb,
   created_at timestamptz not null default now(),
   attachment_type text not null default 'work' check (attachment_type in ('work','example')),
   check (path like task_id::text || '/%')
@@ -297,8 +289,9 @@ create table public.content_assets (
   path text not null unique,
   file_name text not null check (char_length(file_name) between 1 and 255),
   content_type text not null default 'application/octet-stream',
-  size_bytes bigint not null check (size_bytes > 0 and size_bytes <= 52428800),
+  size_bytes bigint not null check (size_bytes > 0 and size_bytes <= 838860800),
   uploaded_by uuid not null references public.profiles(id),
+  storage_parts jsonb not null default '[]'::jsonb,
   created_at timestamptz not null default now(),
   constraint content_assets_owner_path_check check (path like ('content/' || uploaded_by::text || '/%'))
 );
@@ -309,6 +302,24 @@ create index if not exists content_assets_group_idx on public.content_assets (co
 create index if not exists content_assets_status_idx on public.content_assets (status);
 alter table public.content_assets enable row level security;
 
+
+CREATE TABLE public.visit_schedules (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  title text NOT NULL CHECK (char_length(trim(title)) BETWEEN 2 AND 160),
+  city text NOT NULL CHECK (char_length(trim(city)) BETWEEN 2 AND 120),
+  visit_date date NOT NULL,
+  start_time time without time zone NOT NULL,
+  end_date date NOT NULL,
+  end_time time without time zone NOT NULL,
+  job_description text NOT NULL DEFAULT '' CHECK (char_length(job_description) <= 8000),
+  status text NOT NULL DEFAULT 'planned' CHECK (status IN ('fixed','planned','cancelled')),
+  created_by uuid NOT NULL REFERENCES public.profiles(id),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT visit_schedules_range_check CHECK (end_date > visit_date OR (end_date = visit_date AND end_time >= start_time))
+);
+CREATE INDEX visit_schedules_date_idx ON public.visit_schedules (visit_date, start_time);
+ALTER TABLE public.visit_schedules ENABLE ROW LEVEL SECURITY;
 
 create table public.activity_log (
   id uuid primary key default gen_random_uuid(),
@@ -382,18 +393,20 @@ for each row execute function public.log_related_activity();
 -- Least-privilege Data API grants. There is intentionally no client-side delete access to tasks or comments.
 grant usage on schema public to authenticated;
 revoke all on public.profiles, public.tasks, public.task_comments, public.task_attachments, public.content_assets, public.activity_log from anon, authenticated;
-grant select (id, display_name, role, created_at) on public.profiles to authenticated;
+grant select (id, display_name, role, access_label, access_color, created_at) on public.profiles to authenticated;
 grant select on public.tasks to authenticated;
 grant insert (id, title, description, due_date, due_time, priority, status, created_by, assigned_to, created_at) on public.tasks to authenticated;
 grant update (title, description, due_date, due_time, priority, status, assigned_to) on public.tasks to authenticated;
 grant select on public.task_comments to authenticated;
 grant insert (id, task_id, user_id, comment, created_at) on public.task_comments to authenticated;
 grant select on public.task_attachments to authenticated;
-grant insert (id, task_id, path, file_name, content_type, size_bytes, uploaded_by, created_at, attachment_type) on public.task_attachments to authenticated;
+grant insert (id, task_id, path, file_name, content_type, size_bytes, storage_parts, uploaded_by, created_at, attachment_type) on public.task_attachments to authenticated;
 grant delete on public.task_attachments to authenticated;
 grant select, insert, update, delete on public.content_assets to authenticated;
 grant select on public.activity_log to authenticated;
+grant delete on public.tasks to authenticated;
 grant insert (id, task_id, actor_id, action, details, created_at) on public.activity_log to authenticated;
+grant select, insert, update, delete on public.visit_schedules to authenticated;
 
 drop policy if exists team_can_read_profiles on public.profiles;
 create policy team_can_read_profiles on public.profiles
@@ -414,6 +427,9 @@ for update to authenticated
 using (public.is_team_member())
 with check (public.is_team_member());
 
+
+drop policy if exists team_can_delete_tasks on public.tasks;
+create policy team_can_delete_tasks on public.tasks for delete to authenticated using (public.is_team_member());
 
 drop policy if exists team_can_read_comments on public.task_comments;
 create policy team_can_read_comments on public.task_comments
@@ -447,8 +463,10 @@ for insert to authenticated
 with check (
   public.is_team_member()
   and uploaded_by = (select auth.uid())
-  and size_bytes > 0 and size_bytes <= 52428800
+  and size_bytes > 0 and size_bytes <= 838860800
   and path like task_id::text || '/%'
+  and jsonb_typeof(storage_parts) = 'array'
+  and jsonb_array_length(storage_parts) between 1 and 100
   and exists (select 1 from public.tasks t where t.id = task_attachments.task_id)
 );
 
@@ -472,8 +490,10 @@ on public.content_assets for insert to authenticated
 with check (
   public.is_team_member()
   and uploaded_by = (select auth.uid())
-  and size_bytes > 0 and size_bytes <= 52428800
+  and size_bytes > 0 and size_bytes <= 838860800
   and path like ('content/' || (select auth.uid())::text || '/%')
+  and jsonb_typeof(storage_parts) = 'array'
+  and jsonb_array_length(storage_parts) between 1 and 100
 );
 
 drop policy if exists content_assets_update_team on public.content_assets;
@@ -487,6 +507,15 @@ create policy content_assets_delete_team
 on public.content_assets for delete to authenticated
 using (public.is_team_member());
 
+drop policy if exists visit_schedules_read_team on public.visit_schedules;
+create policy visit_schedules_read_team on public.visit_schedules for select to authenticated using (public.is_team_member());
+drop policy if exists visit_schedules_insert_team on public.visit_schedules;
+create policy visit_schedules_insert_team on public.visit_schedules for insert to authenticated with check (public.is_team_member() and created_by = (select auth.uid()));
+drop policy if exists visit_schedules_update_team on public.visit_schedules;
+create policy visit_schedules_update_team on public.visit_schedules for update to authenticated using (public.is_team_member()) with check (public.is_team_member());
+drop policy if exists visit_schedules_delete_team on public.visit_schedules;
+create policy visit_schedules_delete_team on public.visit_schedules for delete to authenticated using (public.is_team_member());
+
 drop policy if exists team_can_read_activity on public.activity_log;
 create policy team_can_read_activity on public.activity_log
 for select to authenticated using (public.is_team_member());
@@ -496,8 +525,8 @@ create policy manager_can_restore_activity on public.activity_log
 for insert to authenticated
 with check (public.current_user_role() = 'manager' and public.is_team_member());
 
--- Private file storage is Supabase Storage. Bucket objects are never public.
--- On the Free plan, the configured application limit is 50 MiB per file and the plan quota is 1 GiB total.
+-- Private file storage is Supabase Storage. Each physical chunk is below 50 MiB.
+-- Application-level files can be up to 800 MiB, subject to the finite storage quota of the selected plan.
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 values ('ruang-kerja-files', 'ruang-kerja-files', false, 52428800, null)
 on conflict (id) do update
@@ -510,8 +539,8 @@ using (
   bucket_id = 'ruang-kerja-files'
   and public.is_team_member()
   and (
-    exists (select 1 from public.task_attachments a where a.path = storage.objects.name)
-    or exists (select 1 from public.content_assets c where c.path = storage.objects.name)
+    exists (select 1 from public.task_attachments a where a.path = storage.objects.name or storage.objects.name like (a.path || '/%'))
+    or exists (select 1 from public.content_assets c where c.path = storage.objects.name or storage.objects.name like (c.path || '/%'))
   )
 );
 
@@ -538,8 +567,8 @@ using (
   bucket_id = 'ruang-kerja-files'
   and public.is_team_member()
   and (
-    exists (select 1 from public.task_attachments a where a.path = storage.objects.name)
-    or exists (select 1 from public.content_assets c where c.path = storage.objects.name)
+    exists (select 1 from public.task_attachments a where a.path = storage.objects.name or storage.objects.name like (a.path || '/%'))
+    or exists (select 1 from public.content_assets c where c.path = storage.objects.name or storage.objects.name like (c.path || '/%'))
     or (
       split_part(name, '/', 2) = (select auth.uid())::text
       and exists (select 1 from public.tasks t where t.id::text = split_part(name, '/', 1))
@@ -558,7 +587,7 @@ using (
   and public.is_team_member()
   and exists (
     select 1 from public.content_assets c
-    where c.path = storage.objects.name
+    where c.path = storage.objects.name or storage.objects.name like (c.path || '/%')
   )
 );
 
