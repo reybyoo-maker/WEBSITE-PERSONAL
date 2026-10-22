@@ -194,7 +194,7 @@ function renderApprovals() {
 }
 function renderFiles() {
   const items = state.attachments.slice().sort((a, b) => b.created_at.localeCompare(a.created_at));
-  return '<div class="page-heading"><div><h2>Arsip & file</h2><p>Lampiran kerja tersimpan privat dan terhubung ke tugas.</p></div></div><div class="file-warning"><strong>Perhatian:</strong><span>Hanya unggah file non-rahasia yang memang boleh disimpan di layanan cloud ini. File berklasifikasi atau rahasia negara harus tetap di sistem resmi yang disetujui instansi.</span></div><section class="panel"><div class="panel-header"><div><h3>Semua lampiran</h3><p>File tersedia untuk anggota tim yang berwenang pada tugas terkait.</p></div><span class="role-badge">' + items.length + " file</span></div>" +
+  return '<div class="page-heading"><div><h2>Arsip & file</h2><p>Lampiran kerja tersimpan privat dan terhubung ke tugas.</p></div>' + (currentRole() === "manager" ? '<div class="heading-actions"><button class="btn btn-secondary" data-backup-export>Backup terenkripsi</button><button class="btn btn-primary" data-backup-restore>Pulihkan backup</button></div>' : '') + '</div><div class="file-warning"><strong>Perhatian:</strong><span>Hanya unggah file non-rahasia yang memang boleh disimpan di layanan cloud ini. File berklasifikasi atau rahasia negara harus tetap di sistem resmi yang disetujui instansi.</span></div><section class="panel"><div class="panel-header"><div><h3>Semua lampiran</h3><p>File tersedia untuk anggota tim yang berwenang pada tugas terkait.</p></div><span class="role-badge">' + items.length + " file</span></div>" +
     (items.length ? items.map((file) => {
       const task = taskById(file.task_id);
       const ext = (file.file_name.split(".").pop() || "FILE").slice(0, 5).toUpperCase();
@@ -431,6 +431,199 @@ async function downloadFile(attachmentId) {
   link.remove();
   window.setTimeout(() => URL.revokeObjectURL(url), 30000);
 }
+
+async function deriveBackupKey(passphrase, salt, usages) {
+  const material = await crypto.subtle.importKey("raw", new TextEncoder().encode(passphrase), "PBKDF2", false, ["deriveKey"]);
+  return crypto.subtle.deriveKey(
+    { name: "PBKDF2", salt, iterations: 310000, hash: "SHA-256" },
+    material, { name: "AES-GCM", length: 256 }, false, usages
+  );
+}
+function saveBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url; link.download = filename;
+  document.body.appendChild(link); link.click(); link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 30000);
+}
+async function exportEncryptedBackup() {
+  if (currentRole() !== "manager") return toast("Backup penuh hanya tersedia untuk manager.", "error");
+  const passphrase = window.prompt("Buat password backup minimal 16 karakter. Simpan di tempat aman; tanpa password ini backup tidak bisa dipulihkan.");
+  if (!passphrase) return;
+  if (passphrase.length < 16) return toast("Password backup harus minimal 16 karakter.", "error");
+  const confirmation = window.prompt("Ketik ulang password backup untuk konfirmasi.");
+  if (confirmation !== passphrase) return toast("Konfirmasi password tidak cocok. Backup dibatalkan.", "error");
+  toast("Menyiapkan data dan lampiran untuk backup…", "success");
+  try {
+    const [tasksRes, commentsRes, attachmentsRes, activitiesRes] = await Promise.all([
+      supabase.from("tasks").select("*").order("created_at"),
+      supabase.from("task_comments").select("*").order("created_at"),
+      supabase.from("task_attachments").select("*").order("created_at"),
+      supabase.from("activity_log").select("*").order("created_at")
+    ]);
+    for (const result of [tasksRes, commentsRes, attachmentsRes, activitiesRes]) {
+      if (result.error) throw result.error;
+    }
+    const { default: JSZip } = await import("https://cdn.jsdelivr.net/npm/jszip@3.10.1/+esm");
+    const zip = new JSZip();
+    const manifest = {
+      format: "ruang-kerja-encrypted-backup",
+      version: 1,
+      created_at: new Date().toISOString(),
+      profiles: state.profiles.map((p) => ({ id: p.id, display_name: p.display_name, role: p.role })),
+      tasks: tasksRes.data || [],
+      comments: commentsRes.data || [],
+      attachments: attachmentsRes.data || [],
+      activities: activitiesRes.data || []
+    };
+    zip.file("backup.json", JSON.stringify(manifest));
+    const attachmentRows = manifest.attachments;
+    for (let i = 0; i < attachmentRows.length; i++) {
+      const item = attachmentRows[i];
+      const result = await supabase.storage.from("task-files").download(item.path);
+      if (result.error || !result.data) throw new Error("Lampiran tidak bisa dibaca: " + item.file_name);
+      zip.file("files/" + item.id, result.data);
+      if ((i + 1) % 5 === 0 || i === attachmentRows.length - 1) {
+        toast("Menyiapkan lampiran " + (i + 1) + "/" + attachmentRows.length + "…", "success");
+      }
+    }
+    const archive = await zip.generateAsync({ type: "uint8array", compression: "DEFLATE", compressionOptions: { level: 5 } });
+    const salt = crypto.getRandomValues(new Uint8Array(16));
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const key = await deriveBackupKey(passphrase, salt, ["encrypt"]);
+    const encrypted = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, archive));
+    const envelope = new Uint8Array(36 + encrypted.length);
+    envelope.set([82, 75, 87, 49, 0, 0, 0, 1], 0);
+    envelope.set(salt, 8); envelope.set(iv, 24); envelope.set(encrypted, 36);
+    saveBlob(new Blob([envelope], { type: "application/octet-stream" }), "ruang-kerja-backup-" + new Date().toISOString().slice(0, 10) + ".rkbak");
+    toast("Backup terenkripsi berhasil diunduh. Simpan salinan di tempat terpisah yang aman.", "success");
+  } catch (error) {
+    toast("Backup gagal: " + (error.message || "kesalahan yang tidak diketahui"), "error");
+  }
+}
+async function insertInChunks(table, rows, chunkSize = 40) {
+  for (let i = 0; i < rows.length; i += chunkSize) {
+    const { error } = await supabase.from(table).insert(rows.slice(i, i + chunkSize));
+    if (error) throw error;
+  }
+}
+async function restoreEncryptedBackup(file) {
+  if (currentRole() !== "manager") return toast("Pemulihan backup hanya tersedia untuk manager.", "error");
+  if (!file || file.size < 64 || file.size > 400 * 1024 * 1024) return toast("File backup tidak valid atau melebihi batas 400 MB.", "error");
+  const passphrase = window.prompt("Masukkan password yang dipakai saat membuat backup.");
+  if (!passphrase) return;
+  toast("Memverifikasi dan membuka backup…", "success");
+  try {
+    const envelope = new Uint8Array(await file.arrayBuffer());
+    const magic = [82, 75, 87, 49, 0, 0, 0, 1];
+    if (!magic.every((value, index) => envelope[index] === value)) throw new Error("Format file backup tidak dikenali.");
+    const salt = envelope.slice(8, 24);
+    const iv = envelope.slice(24, 36);
+    const encrypted = envelope.slice(36);
+    const key = await deriveBackupKey(passphrase, salt, ["decrypt"]);
+    let archive;
+    try {
+      archive = new Uint8Array(await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, encrypted));
+    } catch (_) {
+      throw new Error("Password salah atau file backup rusak.");
+    }
+    const { default: JSZip } = await import("https://cdn.jsdelivr.net/npm/jszip@3.10.1/+esm");
+    const zip = await JSZip.loadAsync(archive);
+    const manifestFile = zip.file("backup.json");
+    if (!manifestFile) throw new Error("Isi backup.json tidak ditemukan.");
+    const backup = JSON.parse(await manifestFile.async("string"));
+    if (backup.format !== "ruang-kerja-encrypted-backup" || backup.version !== 1 ||
+        !Array.isArray(backup.tasks) || !Array.isArray(backup.comments) ||
+        !Array.isArray(backup.attachments) || !Array.isArray(backup.activities) ||
+        !Array.isArray(backup.profiles)) throw new Error("Struktur backup tidak valid.");
+    const profileMap = {};
+    backup.profiles.forEach((oldProfile) => {
+      const match = state.profiles.find((p) => p.role === oldProfile.role);
+      if (match) profileMap[oldProfile.id] = match.id;
+    });
+    const mapProfile = (id) => id ? profileMap[id] : null;
+    if (backup.profiles.some((p) => !profileMap[p.id])) throw new Error("Role anggota backup tidak cocok dengan akun tim saat ini.");
+    const { data: presentTasks, error: taskReadError } = await supabase.from("tasks").select("id");
+    if (taskReadError) throw taskReadError;
+    const taskIds = new Set((presentTasks || []).map((t) => t.id));
+    let restoredTasks = 0;
+    const statusToRestore = [];
+    for (const old of backup.tasks) {
+      if (taskIds.has(old.id)) continue;
+      const createdBy = mapProfile(old.created_by);
+      const assignedTo = mapProfile(old.assigned_to);
+      if (!createdBy || !assignedTo) throw new Error("PIC atau pembuat tugas tidak dapat dipetakan.");
+      const payload = {
+        id: old.id, title: old.title, description: old.description || "",
+        due_date: old.due_date || null, priority: old.priority || "normal",
+        status: "todo", created_by: createdBy, assigned_to: assignedTo,
+        created_at: old.created_at
+      };
+      const { error } = await supabase.from("tasks").insert(payload);
+      if (error) throw error;
+      taskIds.add(old.id); restoredTasks++;
+      if (old.status && old.status !== "todo") statusToRestore.push({ id: old.id, status: old.status });
+    }
+    for (const row of statusToRestore) {
+      const { error } = await supabase.from("tasks").update({ status: row.status }).eq("id", row.id);
+      if (error) throw error;
+    }
+    const { data: presentComments, error: commentReadError } = await supabase.from("task_comments").select("id");
+    if (commentReadError) throw commentReadError;
+    const commentIds = new Set((presentComments || []).map((r) => r.id));
+    const missingComments = backup.comments.filter((c) => !commentIds.has(c.id)).map((c) => ({
+      id: c.id, task_id: c.task_id, user_id: mapProfile(c.user_id),
+      comment: c.comment, created_at: c.created_at
+    }));
+    if (missingComments.some((c) => !c.user_id)) throw new Error("Penulis komentar tidak dapat dipetakan.");
+    await insertInChunks("task_comments", missingComments);
+    const { data: presentAttachments, error: attachmentReadError } = await supabase.from("task_attachments").select("id,path");
+    if (attachmentReadError) throw attachmentReadError;
+    const attachmentIds = new Set((presentAttachments || []).map((r) => r.id));
+    const attachmentPaths = new Set((presentAttachments || []).map((r) => r.path));
+    const missingMetadata = [];
+    for (const item of backup.attachments) {
+      const existingObject = await supabase.storage.from("task-files").download(item.path);
+      if (existingObject.error) {
+        const entry = zip.file("files/" + item.id);
+        if (!entry) throw new Error("Konten lampiran tidak ada di backup: " + item.file_name);
+        const bytes = await entry.async("uint8array");
+        const blob = new Blob([bytes], { type: item.content_type || "application/octet-stream" });
+        const { error: uploadError } = await supabase.storage.from("task-files").upload(item.path, blob, {
+          upsert: false, cacheControl: "3600", contentType: item.content_type || "application/octet-stream"
+        });
+        if (uploadError) {
+          const verify = await supabase.storage.from("task-files").download(item.path);
+          if (verify.error) throw uploadError;
+        }
+      }
+      if (!attachmentIds.has(item.id) && !attachmentPaths.has(item.path)) {
+        const uploadedBy = mapProfile(item.uploaded_by);
+        if (!uploadedBy) throw new Error("Pemilik lampiran tidak dapat dipetakan.");
+        missingMetadata.push({
+          id: item.id, task_id: item.task_id, path: item.path,
+          file_name: item.file_name, content_type: item.content_type || "application/octet-stream",
+          size_bytes: item.size_bytes, uploaded_by: uploadedBy, created_at: item.created_at
+        });
+        attachmentIds.add(item.id); attachmentPaths.add(item.path);
+      }
+    }
+    await insertInChunks("task_attachments", missingMetadata, 20);
+    const { data: presentActivity, error: activityReadError } = await supabase.from("activity_log").select("id");
+    if (activityReadError) throw activityReadError;
+    const activityIds = new Set((presentActivity || []).map((r) => r.id));
+    const missingActivity = backup.activities.filter((a) => !activityIds.has(a.id)).map((a) => ({
+      id: a.id, task_id: a.task_id || null, actor_id: mapProfile(a.actor_id),
+      action: a.action, details: a.details || {}, created_at: a.created_at
+    }));
+    await insertInChunks("activity_log", missingActivity, 40);
+    await loadWorkspace();
+    toast("Pemulihan selesai. " + restoredTasks + " tugas yang sebelumnya belum ada berhasil dipulihkan; data yang sudah ada tidak ditimpa.", "success");
+  } catch (error) {
+    toast("Pemulihan belum selesai: " + (error.message || "kesalahan yang tidak diketahui") + ". Kamu dapat mencoba lagi; catatan yang sudah ada tidak ditimpa.", "error");
+  }
+}
+
 function closeModal() {
   $("#modal-root").innerHTML = "";
   state.selectedTaskId = null;
@@ -505,6 +698,14 @@ document.addEventListener("click", async (event) => {
   if (status) { await changeTaskStatus(status.dataset.id, status.dataset.taskStatus); return; }
   const revision = event.target.closest("[data-show-revision]");
   if (revision) { const box = $("#revision-box"); box.hidden = !box.hidden; $("#revision-note")?.focus(); return; }
+  if (event.target.closest("[data-backup-export]")) { await exportEncryptedBackup(); return; }
+  if (event.target.closest("[data-backup-restore]")) {
+    if (currentRole() !== "manager") return toast("Pemulihan backup hanya tersedia untuk manager.", "error");
+    const picker = document.createElement("input");
+    picker.type = "file"; picker.accept = ".rkbak,application/octet-stream";
+    picker.addEventListener("change", () => restoreEncryptedBackup(picker.files && picker.files[0]));
+    picker.click(); return;
+  }
   const download = event.target.closest(".download-file");
   if (download) { await downloadFile(download.dataset.id); return; }
   if (event.target.closest(".close-modal")) { closeModal(); return; }
