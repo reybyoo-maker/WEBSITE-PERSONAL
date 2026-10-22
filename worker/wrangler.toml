@@ -1,0 +1,14 @@
+name = "ruang-kerja-file-api"
+main = "r2-worker.js"
+compatibility_date = "2026-10-22"
+workers_dev = true
+
+[[r2_buckets]]
+binding = "FILES_BUCKET"
+bucket_name = "ruang-kerja-files"
+
+# Set these in Cloudflare Worker Settings > Variables and Secrets.
+# ALLOWED_ORIGINS = "https://YOUR-PAGES-PROJECT.pages.dev"
+# SUPABASE_URL = "https://YOUR-PROJECT-REF.supabase.co"
+# SUPABASE_ANON_KEY = "your public anon/publishable key"
+# DOWNLOAD_SIGNING_SECRET must be a Secret (random 32+ characters).
