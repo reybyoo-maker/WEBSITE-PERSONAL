@@ -152,9 +152,39 @@ async function handleUploadAbort(request, env, user) {
   }
   return json(request, env, { ok: true });
 }
-async function handleDownload(request, env, user) {
-  const url = new URL(request.url);
-  const key = url.searchParams.get("key") || "";
+function toBase64Url(bytes) {
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+function fromBase64Url(value) {
+  const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
+  const padded = normalized + "=".repeat((4 - normalized.length % 4) % 4);
+  const binary = atob(padded);
+  return Uint8Array.from(binary, (character) => character.charCodeAt(0));
+}
+async function signTicket(payload, secret) {
+  const payloadPart = toBase64Url(new TextEncoder().encode(JSON.stringify(payload)));
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const signature = new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(payloadPart)));
+  return payloadPart + "." + toBase64Url(signature);
+}
+async function verifyTicket(ticket, secret) {
+  if (!ticket || ticket.length > 4096 || !ticket.includes(".")) throw new Error("Tautan unduhan tidak valid.");
+  const [payloadPart, signaturePart] = ticket.split(".");
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["verify"]);
+  const valid = await crypto.subtle.verify("HMAC", key, fromBase64Url(signaturePart), new TextEncoder().encode(payloadPart));
+  if (!valid) throw new Error("Tautan unduhan tidak valid.");
+  const payload = JSON.parse(new TextDecoder().decode(fromBase64Url(payloadPart)));
+  if (!payload.key || !payload.expiresAt || Date.now() > payload.expiresAt) throw new Error("Tautan unduhan sudah kedaluwarsa. Minta tautan baru.");
+  return payload;
+}
+async function handleDownloadTicket(request, env, user) {
+  if (!env.DOWNLOAD_SIGNING_SECRET || env.DOWNLOAD_SIGNING_SECRET.length < 32) {
+    throw new Error("Secret tiket unduhan Worker belum diatur.");
+  }
+  const payload = await request.json();
+  const key = String(payload.key || "");
   const taskId = key.split("/")[0] || "";
   await authorizeTask(env, user, taskId);
   const rows = await dbGet(env, user, "task_attachments", {
@@ -164,19 +194,37 @@ async function handleDownload(request, env, user) {
   });
   const row = rows[0];
   if (!row || row.task_id !== taskId) throw new Error("Lampiran tidak terdaftar atau tidak dapat diakses.");
-  const object = await env.FILES_BUCKET.get(key);
+  const object = await env.FILES_BUCKET.head(key);
   if (!object) return fail(request, env, "File tidak ditemukan di penyimpanan.", 404);
-  const filename = String(row.file_name || "download").replace(/[\r\n"]/g, "_");
-  const headers = new Headers({
-    ...cors(request, env),
-    "Content-Type": "application/octet-stream",
-    "Content-Length": String(object.size),
-    "Content-Disposition": "attachment; filename=\"" + filename + "\"; filename*=UTF-8''" + encodeURIComponent(filename),
-    "Cache-Control": "private, no-store, max-age=0",
-    "X-Content-Type-Options": "nosniff"
-  });
-  return new Response(object.body, { status: 200, headers });
+  const ticket = await signTicket({ key, filename: row.file_name, expiresAt: Date.now() + 60 * 1000 }, env.DOWNLOAD_SIGNING_SECRET);
+  return json(request, env, { url: new URL("/download?ticket=" + encodeURIComponent(ticket), new URL(request.url).origin).toString(), expiresInSeconds: 60 });
 }
+async function handleTicketDownload(request, env) {
+  if (!env.DOWNLOAD_SIGNING_SECRET || env.DOWNLOAD_SIGNING_SECRET.length < 32) {
+    return new Response("Konfigurasi ticket download belum lengkap.", { status: 503, headers: { "Cache-Control": "no-store" } });
+  }
+  const ticket = new URL(request.url).searchParams.get("ticket") || "";
+  let payload;
+  try {
+    payload = await verifyTicket(ticket, env.DOWNLOAD_SIGNING_SECRET);
+  } catch (error) {
+    return new Response(String(error.message || "Tautan unduhan tidak valid."), { status: 403, headers: { "Cache-Control": "no-store" } });
+  }
+  const object = await env.FILES_BUCKET.get(payload.key);
+  if (!object) return new Response("File tidak ditemukan.", { status: 404, headers: { "Cache-Control": "no-store" } });
+  const filename = String(payload.filename || "download").replace(/[\r\n"]/g, "_");
+  return new Response(object.body, {
+    status: 200,
+    headers: {
+      "Content-Type": "application/octet-stream",
+      "Content-Length": String(object.size),
+      "Content-Disposition": "attachment; filename=\"" + filename + "\"; filename*=UTF-8''" + encodeURIComponent(filename),
+      "Cache-Control": "private, no-store, max-age=0",
+      "X-Content-Type-Options": "nosniff"
+    }
+  });
+}
+
 export default {
   async fetch(request, env) {
     const origin = request.headers.get("Origin") || "";
@@ -187,6 +235,11 @@ export default {
     }
     if (!allowed.includes(origin)) return new Response("Origin tidak diizinkan.", { status: 403 });
     const url = new URL(request.url);
+    const ticketDownload = request.method === "GET" && url.pathname === "/download" && url.searchParams.has("ticket");
+    if (ticketDownload) {
+      if (origin && !allowed.includes(origin)) return new Response("Origin tidak diizinkan.", { status: 403 });
+      return handleTicketDownload(request, env);
+    }
     if (request.method === "GET" && url.pathname === "/health") {
       return json(request, env, { ok: true, service: "ruang-kerja-file-api", maxParts: MAX_PARTS, partSize: PART_SIZE });
     }
@@ -196,7 +249,7 @@ export default {
       if (request.method === "POST" && url.pathname === "/upload/part") return await handleUploadPart(request, env, user);
       if (request.method === "POST" && url.pathname === "/upload/complete") return await handleUploadComplete(request, env, user);
       if (request.method === "POST" && url.pathname === "/upload/abort") return await handleUploadAbort(request, env, user);
-      if (request.method === "GET" && url.pathname === "/download") return await handleDownload(request, env, user);
+      if (request.method === "POST" && url.pathname === "/download-ticket") return await handleDownloadTicket(request, env, user);
       return fail(request, env, "Endpoint tidak ditemukan.", 404);
     } catch (error) {
       const message = String(error && error.message || "Permintaan gagal.");
