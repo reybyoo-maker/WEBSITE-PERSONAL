@@ -27,12 +27,13 @@ Jika total file tim melebihi 10 GB dan harus selalu gratis, tidak ada layanan cl
 
 ## Setup gratis
 
-### 1. Buat project Supabase
+### 1. Supabase (sudah tersambung untuk project ini)
 
-1. Buka https://supabase.com/ dan buat project.
-2. Di Supabase → SQL Editor, jalankan seluruh isi `supabase/schema.sql` untuk instalasi baru. Jika kamu sudah memakai schema versi lama sebelumnya, jalankan `supabase/migrations/20261022_r2_large_files.sql` agar batas metadata berubah tanpa menghapus catatan tugas yang sudah ada.
-3. Di Project Settings → API, salin Project URL dan public anon/publishable key ke `config.js`. Jangan pernah menggunakan service_role/secret key di browser.
-4. Pastikan Auth Email/Password aktif.
+Project `ruang-kerja-rey` sudah aktif, skema database dan aturan RLS sudah diterapkan, dan `config.js` sudah berisi Project URL serta public publishable key. **Jangan jalankan ulang `supabase/schema.sql` pada project yang sudah aktif ini** karena file itu hanya untuk database baru yang masih kosong.
+
+Untuk membuat instalasi baru di project kosong: buka https://supabase.com/, buat project, jalankan seluruh `supabase/schema.sql` sekali di SQL Editor, lalu isi URL dan public anon/publishable key di `config.js`. Jangan gunakan `service_role` atau secret key di browser. Jika menerapkan skema versi lama yang sudah memiliki data, gunakan migration yang sesuai, bukan menjalankan schema penuh berulang kali.
+
+Pastikan Auth Email/Password aktif.
 
 ### 2. Buat private bucket Cloudflare R2
 
@@ -72,6 +73,8 @@ Menu Arsip & File menyediakan backup `.rkbak` terenkripsi di browser memakai AES
 - `config.js`: Supabase URL, public key, dan URL Worker.
 - `supabase/schema.sql`: database, aturan role/RLS, metadata file.
 - `supabase/migrations/20261022_r2_large_files.sql`: perubahan limit metadata untuk instalasi lama.
+- `supabase/migrations/20261022_harden_helpers_and_fk_indexes.sql`: helper akses privat dan indeks foreign key.
+- `supabase/migrations/20261022_move_invites_to_private.sql`: memindahkan hash undangan ke skema privat.
 - `worker/r2-worker.js`: upload multipart, validasi akses, download bertiket singkat.
 - `worker/wrangler.toml`: konfigurasi Worker dan binding bucket.
 - `scripts/build.mjs`: hanya menyalin aset website ke `dist/`.
