@@ -185,7 +185,16 @@ async function handleOAuthCallback(url: URL) {
     let refreshToken = token.refresh_token || existing?.refresh_token || "";
     if (!refreshToken) throw new Error("Google tidak mengirim refresh token. Hapus izin aplikasi dari Akun Google, lalu hubungkan ulang dengan prompt consent.");
     let folderId = existing?.folder_id || "";
-    if (!folderId) folderId = await createDriveFolder(token.access_token);
+    if (folderId) {
+      const folderCheck = await fetch("https://www.googleapis.com/drive/v3/files/" + encodeURIComponent(folderId) + "?fields=id", {
+        headers: { Authorization: "Bearer " + token.access_token },
+      });
+      if (!folderCheck.ok) {
+        throw new Error("Akun Google ini berbeda dari akun yang tersambung sebelumnya. Pilih akun Google yang sama agar file lama tetap dapat diakses.");
+      }
+    } else {
+      folderId = await createDriveFolder(token.access_token);
+    }
     const { error: saveError } = await admin.from("google_drive_credentials").upsert({
       id: 1, refresh_token: refreshToken, folder_id: folderId, updated_at: new Date().toISOString(),
     }, { onConflict: "id" });
@@ -314,7 +323,10 @@ async function scheduledCleanup(req: Request) {
     ...content.map((row) => ({ ...row, _table: "content_assets" as const })),
   ];
   let driveAuth: { accessToken: string; folderId: string } | null = null;
-  if (expired.some((row) => row.storage_provider === "google_drive")) {
+  const { data: driveCredential, error: credentialError } = await admin
+    .from("google_drive_credentials").select("id").eq("id", 1).maybeSingle();
+  if (credentialError) throw new Error("Status akun Google Drive tidak dapat dibaca.");
+  if (driveCredential || expired.some((row) => row.storage_provider === "google_drive")) {
     driveAuth = await refreshAccessToken(admin);
   }
 
