@@ -267,12 +267,15 @@ create table public.task_attachments (
   size_bytes bigint not null check (size_bytes > 0 and size_bytes <= 838860800),
   uploaded_by uuid not null references public.profiles(id),
   storage_parts jsonb not null default '[]'::jsonb,
+  storage_provider text not null default 'supabase' check (storage_provider in ('supabase','backblaze')),
+  storage_uploaded_at timestamptz not null default now(),
   created_at timestamptz not null default now(),
   attachment_type text not null default 'work' check (attachment_type in ('work','example')),
   check (path like task_id::text || '/%')
 );
 create index task_attachments_task_idx on public.task_attachments (task_id, created_at);
 create index if not exists task_attachments_uploaded_by_idx on public.task_attachments (uploaded_by);
+create index if not exists task_attachments_storage_age_idx on public.task_attachments (storage_uploaded_at);
 alter table public.task_attachments enable row level security;
 
 
@@ -292,6 +295,8 @@ create table public.content_assets (
   size_bytes bigint not null check (size_bytes > 0 and size_bytes <= 838860800),
   uploaded_by uuid not null references public.profiles(id),
   storage_parts jsonb not null default '[]'::jsonb,
+  storage_provider text not null default 'supabase' check (storage_provider in ('supabase','backblaze')),
+  storage_uploaded_at timestamptz not null default now(),
   created_at timestamptz not null default now(),
   constraint content_assets_owner_path_check check (path like ('content/' || uploaded_by::text || '/%'))
 );
@@ -300,6 +305,7 @@ create index content_assets_created_idx on public.content_assets (created_at des
 create index if not exists content_assets_uploaded_by_idx on public.content_assets (uploaded_by);
 create index if not exists content_assets_group_idx on public.content_assets (content_group_id);
 create index if not exists content_assets_status_idx on public.content_assets (status);
+create index if not exists content_assets_storage_age_idx on public.content_assets (storage_uploaded_at);
 alter table public.content_assets enable row level security;
 
 
@@ -400,7 +406,7 @@ grant update (title, description, due_date, due_time, priority, status, assigned
 grant select on public.task_comments to authenticated;
 grant insert (id, task_id, user_id, comment, created_at) on public.task_comments to authenticated;
 grant select on public.task_attachments to authenticated;
-grant insert (id, task_id, path, file_name, content_type, size_bytes, storage_parts, uploaded_by, created_at, attachment_type) on public.task_attachments to authenticated;
+grant insert (id, task_id, path, file_name, content_type, size_bytes, storage_parts, uploaded_by, created_at, attachment_type, storage_provider) on public.task_attachments to authenticated;
 grant delete on public.task_attachments to authenticated;
 grant select, insert, update, delete on public.content_assets to authenticated;
 grant select on public.activity_log to authenticated;
