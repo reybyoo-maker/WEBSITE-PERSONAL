@@ -1,6 +1,10 @@
 alter table public.tasks
   add column if not exists due_time time without time zone;
 
+-- The original schema uses column-level grants, so grant access to the new deadline time column too.
+grant insert (due_time) on public.tasks to authenticated;
+grant update (due_time) on public.tasks to authenticated;
+
 create table if not exists public.content_assets (
   id uuid primary key default gen_random_uuid(),
   title text not null check (char_length(trim(title)) between 1 and 160),
