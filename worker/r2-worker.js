@@ -90,7 +90,7 @@ async function handleUploadInit(request, env, user) {
   const size = Number(payload.size);
   const type = String(payload.contentType || "application/octet-stream").slice(0, 255);
   if (!Number.isSafeInteger(size) || size <= 0 || size > MAX_FILE_SIZE) {
-    return fail(request, env, "Ukuran maksimum per file untuk transfer ini sekitar 625 GiB. Pecah file yang lebih besar menjadi beberapa bagian/file.", 413);
+    return fail(request, env, "Ukuran maksimum per file untuk transfer ini sekitar 879 GiB. Pecah file yang lebih besar menjadi beberapa bagian/file.", 413);
   }
   if (filename.length > 255) return fail(request, env, "Nama file terlalu panjang.");
   const { task } = await authorizeTask(env, user, taskId);
