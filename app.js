@@ -402,7 +402,7 @@ async function fileApiJson(response) {
   return payload;
 }
 async function uploadLargeFile(taskId, file, onProgress = () => {}) {
-  const partLimit = 64 * 1024 * 1024;
+  const partLimit = 90 * 1024 * 1024;
   const maxFileSize = partLimit * 10000;
   if (!file || file.size < 1) throw new Error("File kosong.");
   if (file.size > maxFileSize) throw new Error("File melebihi batas transfer teknis sekitar 625 GiB per file. Pecah menjadi beberapa file.");
