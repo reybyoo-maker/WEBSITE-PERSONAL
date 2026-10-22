@@ -1,4 +1,4 @@
-# Keep deployment workflow active for the current Google Drive integration.
+# Build and publish the current Google Drive OAuth interface and static portal assets.
 name: Deploy Ruang Kerja to GitHub Pages
 
 on:
