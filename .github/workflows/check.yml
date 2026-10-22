@@ -1,0 +1,21 @@
+name: Validate Ruang Kerja
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  syntax:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Check application JavaScript syntax
+        run: node --input-type=module --check < app.js
+      - name: Check build script syntax
+        run: node --check scripts/build.mjs
