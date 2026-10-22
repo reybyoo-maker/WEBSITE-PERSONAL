@@ -21,7 +21,7 @@ Portal responsif untuk koordinasi tim: tugas dan deadline, approval/revisi, lamp
 
 ## Kapasitas dan retensi file
 
-Portal memecah file menjadi potongan masing-masing **20 MiB**, sehingga batas aplikasi adalah **800 MiB per file** dan saat diunduh potongan disatukan kembali. Bucket privat pada paket gratis Supabase memiliki kuota total **1 GB** dan batas **50 MB per objek**; potongan 20 MiB berada di bawah batas objek, tetapi total file yang masih tersimpan tetap dibatasi oleh kuota project. <Cite refs={[]} />
+Portal memecah file menjadi potongan masing-masing **20 MiB**, sehingga batas aplikasi adalah **800 MiB per file** dan saat diunduh potongan disatukan kembali. Bucket privat pada paket gratis Supabase memiliki kuota total **1 GB** dan batas **50 MB per objek**; potongan 20 MiB berada di bawah batas objek, tetapi total file yang masih tersimpan tetap dibatasi oleh kuota project.
 
 Supabase Cron berjalan setiap hari sekitar pukul 10.17 WIB dan menghapus file serta metadata yang usianya sudah 14 hari atau lebih. Penghapusan manual langsung membuang objek dari Storage agar ruang bisa dipakai kembali. Backup-kan file penting di tempat terpisah sebelum usia retensi habis.
 
