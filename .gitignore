@@ -13,3 +13,4 @@
 private-files/
 uploads/
 .DS_Store
+dist/
