@@ -4,6 +4,7 @@ import {
   S3Client,
   PutObjectCommand,
   GetObjectCommand,
+  ListObjectVersionsCommand,
   DeleteObjectsCommand,
 } from "npm:@aws-sdk/client-s3@3.821.0";
 import { getSignedUrl } from "npm:@aws-sdk/s3-request-presigner@3.821.0";
@@ -162,17 +163,48 @@ Deno.serve(async (req: Request) => {
           return json(req, { error: "Penghapusan ditolak untuk file yang tidak tercatat." }, 403);
         }
       }
-      if (parsedKeys.length) {
-        const result = await client.send(new DeleteObjectsCommand({
-          Bucket: bucket,
-          Delete: { Objects: (parsedKeys as NonNullable<ReturnType<typeof parsePartKey>>[]).map((item) => ({ Key: item.key })), Quiet: false },
-        }));
-        if (result.Errors?.length) {
-          console.error("Sebagian objek B2 gagal dihapus:", result.Errors.map((item) => ({ key: item.Key, code: item.Code })));
-          return json(req, { error: "Sebagian file gagal dihapus dari Backblaze. Coba lagi sebelum menghapus metadata." }, 502);
+      const requestedKeys = new Set((parsedKeys as NonNullable<ReturnType<typeof parsePartKey>>[]).map((item) => item.key));
+      const roots = new Set((parsedKeys as NonNullable<ReturnType<typeof parsePartKey>>[]).map((item) => item.root));
+      const versionsToDelete: { Key: string; VersionId: string }[] = [];
+      for (const root of roots) {
+        let keyMarker: string | undefined;
+        let versionMarker: string | undefined;
+        let truncated = true;
+        while (truncated) {
+          const page = await client.send(new ListObjectVersionsCommand({
+            Bucket: bucket,
+            Prefix: root + "/",
+            MaxKeys: 1000,
+            ...(keyMarker ? { KeyMarker: keyMarker } : {}),
+            ...(versionMarker ? { VersionIdMarker: versionMarker } : {}),
+          }));
+          for (const version of page.Versions || []) {
+            if (version.Key && version.VersionId && requestedKeys.has(version.Key)) {
+              versionsToDelete.push({ Key: version.Key, VersionId: version.VersionId });
+            }
+          }
+          for (const marker of page.DeleteMarkers || []) {
+            if (marker.Key && marker.VersionId && requestedKeys.has(marker.Key)) {
+              versionsToDelete.push({ Key: marker.Key, VersionId: marker.VersionId });
+            }
+          }
+          truncated = Boolean(page.IsTruncated);
+          keyMarker = page.NextKeyMarker;
+          versionMarker = page.NextVersionIdMarker;
+          if (truncated && !keyMarker) throw new Error("Backblaze pagination versi file tidak lengkap.");
         }
       }
-      return json(req, { ok: true, deleted: parsedKeys.length });
+      for (let start = 0; start < versionsToDelete.length; start += 1000) {
+        const result = await client.send(new DeleteObjectsCommand({
+          Bucket: bucket,
+          Delete: { Objects: versionsToDelete.slice(start, start + 1000), Quiet: false },
+        }));
+        if (result.Errors?.length) {
+          console.error("Sebagian versi objek B2 gagal dihapus:", result.Errors.map((item) => ({ key: item.Key, code: item.Code })));
+          return json(req, { error: "Sebagian file gagal dihapus permanen dari Backblaze. Coba lagi sebelum menghapus metadata." }, 502);
+        }
+      }
+      return json(req, { ok: true, deleted: requestedKeys.size, versionsPermanentlyDeleted: versionsToDelete.length });
     }
 
     return json(req, { error: "Aksi storage tidak dikenal." }, 400);
