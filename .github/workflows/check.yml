@@ -19,3 +19,13 @@ jobs:
         run: node --input-type=module --check < app.js
       - name: Check build script syntax
         run: node --check scripts/build.mjs
+      - name: Build public website assets
+        run: npm run build
+      - name: Verify deployment output excludes private backend files
+        run: |
+          test -f dist/index.html
+          test -f dist/styles.css
+          test -f dist/app.js
+          test -f dist/config.js
+          test ! -f dist/README.md
+          test ! -f dist/schema.sql
