@@ -123,6 +123,16 @@ Workflow `.github/workflows/google-drive-retention.yml` menjalankan pembersihan 
 
 Jangan kirim token cleanup di chat atau taruh di file source. Kalau token tidak ada atau berbeda antara GitHub dan Supabase, job tidak dapat membersihkan file otomatis.
 
+### Jika OAuth gagal
+
+- **`Error 400: redirect_uri_mismatch`** — buka Client ID Web kamu, periksa daftar **Authorized redirect URIs**, dan pastikan alamat persis sama dengan URI di bagian A. Jangan pakai alamat GitHub Pages sebagai callback OAuth.
+- **`Access blocked` atau akun tidak diizinkan** — buka **Google Auth Platform → Audience → Test users**, tambahkan Gmail yang dipakai untuk Google Drive, lalu coba lagi. Jika aplikasi masih Testing, gunakan akun yang tercantum di sana.
+- **`invalid_client` atau `unauthorized_client`** — pastikan Client ID dan Client Secret berasal dari project Google Cloud yang sama dengan Google Drive API. Periksa tidak ada spasi saat menyalin secret.
+- **Tombol tidak ada di website** — jalankan ulang workflow **Deploy Ruang Kerja to GitHub Pages** pada branch `main`, tunggu sukses, lalu muat ulang halaman dengan hard refresh.
+- **`Google Drive belum disiapkan`** — periksa tiga secrets `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, dan `GOOGLE_REDIRECT_URI` di Supabase. Pastikan nilai callback tidak ada slash tambahan.
+- **Token tidak bertahan sampai 14 hari** — OAuth External app dengan Publishing status **Testing** memberi grant yang kedaluwarsa setelah 7 hari. Untuk otomatisasi retensi yang terus berjalan, ikuti langkah **In production** di bagian A.
+- **OAuth berhasil tetapi refresh token tidak diperoleh** — buka [izin aplikasi di Akun Google](https://myaccount.google.com/permissions), cabut akses `Ruang Kerja Rey` jika sudah tercatat, kemudian mulai koneksi ulang dari portal. Simpan Client Secret dan refresh token hanya di backend.
+
 ## Notifikasi Telegram
 
 Edge Function `notify-telegram` sudah dibuat di Supabase. Agar notifikasi aktif, set dua rahasia ini pada project Supabase **Settings / Edge Functions → Secrets** (label halaman bisa berubah):
