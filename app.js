@@ -14,7 +14,7 @@ const supabase = configured ? createClient(config.supabaseUrl, config.supabaseAn
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
 const state = {
-  user: null, profile: null, profiles: [], tasks: [], comments: [], attachments: [], contentAssets: [], activities: [],
+  user: null, profile: null, profiles: [], tasks: [], comments: [], attachments: [], contentAssets: [], activities: [], visitSchedules: [],
   view: "dashboard", selectedTaskId: null, loading: false
 };
 const STATUS = {
@@ -27,9 +27,12 @@ const STATUS = {
   archived: "Diarsipkan"
 };
 const PRIORITY = { low: "Rendah", normal: "Normal", high: "Tinggi", urgent: "Urgent" };
+const VISIT_STATUS = { fixed: "Fix", planned: "Masih rencana", cancelled: "Batal" };
+const MAX_STORAGE_FILE_SIZE = 800 * 1024 * 1024;
+const STORAGE_CHUNK_SIZE = 20 * 1024 * 1024;
 const PAGE_TITLE = {
   dashboard: "Dashboard", tasks: "Semua pekerjaan", approvals: "Approval & revisi",
-  files: "Arsip & file", content: "Content", activity: "Riwayat aktivitas"
+  files: "Arsip & file", content: "Content", visits: "Visit offline", activity: "Riwayat aktivitas"
 };
 
 function esc(value) {
@@ -72,7 +75,17 @@ function isLate(task) {
 }
 function profileName(id) {
   const found = state.profiles.find((item) => item.id === id);
-  return found ? found.display_name : "Belum ditentukan";
+  return found ? (found.access_label || found.display_name || "Kode") : "Belum ditentukan";
+}
+function profileColorToken(profile) { return profile && profile.access_color === "#ec4899" ? "pink" : "red"; }
+function profileColorLabel(profile) { return profileColorToken(profile) === "pink" ? "Pink" : "Merah"; }
+function getStoredPaths(item) {
+  return Array.isArray(item?.storage_parts) && item.storage_parts.length
+    ? item.storage_parts.filter((path) => typeof path === "string" && path)
+    : (item?.path ? [item.path] : []);
+}
+function visitWindowLabel(visit) {
+  return fmtDate(visit.visit_date) + " · " + fmtClock(visit.start_time) + " — " + fmtDate(visit.end_date) + " · " + fmtClock(visit.end_time);
 }
 function taskById(id) { return state.tasks.find((item) => item.id === id); }
 function groupContentAssets(assets = state.contentAssets) {
@@ -134,8 +147,9 @@ function taskRow(task, actionLabel = "Detail") {
   return '<div class="task-row"><div class="task-main-wrap">' + taskDetails(task) + '</div><div class="task-actions">' + statusBadge(task.status) + deadlineStatusBadge(task) + '<button class="btn btn-secondary btn-small task-open" data-id="' + esc(task.id) + '">' + esc(actionLabel) + "</button></div></div>";
 }
 function personChip(id) {
-  const name = profileName(id);
-  return '<span class="person-chip"><span class="avatar">' + esc(initials(name)) + "</span>" + esc(name) + "</span>";
+  const profile = state.profiles.find((item) => item.id === id);
+  const name = profile ? (profile.access_label || profile.display_name) : "Belum ditentukan";
+  return '<span class="person-chip"><span class="avatar avatar-code-' + profileColorToken(profile) + '">' + esc(initials(name)) + "</span>" + esc(name) + "</span>";
 }
 function statCard(label, value, symbol, sub) {
   return '<article class="stat-card"><div class="stat-top"><span>' + esc(label) + '</span><span class="stat-icon">' + symbol + '</span></div><div class="stat-value">' + esc(value) + '</div><div class="stat-sub">' + esc(sub) + "</div></article>";
@@ -150,6 +164,7 @@ function renderDashboard() {
   const today = new Date().toISOString().slice(0, 10);
   const active = state.tasks.filter((t) => !isClosed(t));
   const dueToday = active.filter((t) => t.due_date === today).length;
+  const completed = state.tasks.filter((t) => t.status === "done").length;
   const pending = state.tasks.filter((t) => t.status === "in_review").length + groupContentAssets().filter((c) => c.status === "in_review").length;
   const overdue = active.filter(isLate).length;
   const recent = active.slice().sort((a, b) => {
@@ -161,21 +176,25 @@ function renderDashboard() {
     return String(a.due_time || "23:59:59").localeCompare(String(b.due_time || "23:59:59"));
   }).slice(0, 5);
   const needsMe = state.tasks.filter((t) => t.status === "in_review" || t.status === "changes_requested").length + groupContentAssets().filter((c) => c.status === "in_review" || c.status === "changes_requested").length;
-  return '<div class="page-heading"><div><h2>Halo, ' + esc(state.profile.display_name.split(/\s+/)[0]) + '.</h2><p>Berikut ringkasan pekerjaan tim kamu hari ini.</p></div><div class="heading-actions">' + openCreateButton() + "</div></div>" +
+  const upcomingVisits = state.visitSchedules.filter((v) => v.status !== "cancelled" && v.visit_date >= today).length;
+  return '<div class="page-heading"><div><h2>Halo, ' + esc(state.profile.access_label || state.profile.display_name) + '.</h2><p>Berikut ringkasan pekerjaan tim kamu hari ini.</p></div><div class="heading-actions">' + openCreateButton() + '</div></div>' +
     '<div class="stats-grid">' +
     statCard("Tugas aktif", active.length, "☷", "Semua pekerjaan yang belum selesai") +
+    statCard("Tugas selesai", completed, "✓", "Total tugas berstatus Done") +
     statCard("Deadline hari ini", dueToday, "◷", "Perlu dituntaskan hari ini") +
     statCard("Menunggu approval", needsMe, "✓", "Tugas dan content menunggu keputusan atau revisi") +
     statCard("Terlambat", overdue, "!", overdue ? "Periksa dan perbarui progres" : "Tidak ada tugas terlambat") +
     '</div><div class="dashboard-grid"><section class="panel"><div class="panel-header"><div><h3>Deadline terdekat</h3><p>Prioritas untuk beberapa hari ke depan</p></div><button class="text-action" data-view="tasks">Lihat semua →</button></div>' +
-    (recent.length ? '<div class="task-list">' + recent.map((t) => taskRow(t, "Buka")).join("") + "</div>" : emptyState("Belum ada pekerjaan aktif", "Buat tugas pertama supaya deadline dan progres tercatat.", openCreateButton("Buat tugas pertama"))) +
+    (recent.length ? '<div class="task-list">' + recent.map((t) => taskRow(t, "Buka")).join("") + '</div>' : emptyState("Belum ada pekerjaan aktif", "Buat tugas pertama supaya deadline dan progres tercatat.", openCreateButton("Buat tugas pertama"))) +
     '</section><section class="panel"><div class="panel-header"><div><h3>Butuh perhatian</h3><p>Approval, revisi, atau tugas lewat deadline</p></div></div><div class="panel-body"><div class="mini-list">' +
-    (overdue ? '<div class="mini-item"><span class="mini-dot" style="background:#b44343"></span><div class="mini-copy"><strong>' + overdue + " tugas terlambat</strong><p>Periksa deadline dan kabari penanggung jawab.</p></div></div>" : "") +
-    (pending ? '<div class="mini-item"><span class="mini-dot" style="background:#6b54a3"></span><div class="mini-copy"><strong>' + pending + " tugas menunggu approval</strong><p>" + "Buka menu Approval untuk meninjau hasil yang diajukan." + '</p><button class="text-action" data-view="approvals">Buka approval →</button></div></div>' : "") +
+    (overdue ? '<div class="mini-item"><span class="mini-dot" style="background:#b44343"></span><div class="mini-copy"><strong>' + overdue + ' tugas terlambat</strong><p>Periksa deadline dan kabari penanggung jawab.</p></div></div>' : "") +
+    (pending ? '<div class="mini-item"><span class="mini-dot" style="background:#6b54a3"></span><div class="mini-copy"><strong>' + pending + ' tugas menunggu approval</strong><p>Buka menu Approval untuk meninjau hasil yang diajukan.</p><button class="text-action" data-view="approvals">Buka approval →</button></div></div>' : "") +
+    (upcomingVisits ? '<div class="mini-item"><span class="mini-dot" style="background:#2f68a8"></span><div class="mini-copy"><strong>' + upcomingVisits + ' schedule visit mendatang</strong><p>Periksa kota dan waktu kunjungan offline.</p><button class="text-action" data-view="visits">Buka schedule visit →</button></div></div>' : "") +
     (needsMe === 0 && overdue === 0 && pending === 0 ? '<div class="mini-item"><span class="mini-dot" style="background:#21785b"></span><div class="mini-copy"><strong>Semua terkendali</strong><p>Belum ada hal mendesak yang membutuhkan perhatian.</p></div></div>' : "") +
-    '<div class="mini-item"><span class="mini-dot"></span><div class="mini-copy"><strong>Panel ' + esc(roleLabel(state.profile.role)) + '</strong><p>' + "Semua pemegang kode akses memiliki hak yang sama untuk tugas, revisi, approval, dan file." + "</p></div></div>" +
-    "</div></div></section></div>";
+    '<div class="mini-item"><span class="mini-dot" style="background:' + esc(state.profile.access_color || "#dc2626") + '"></span><div class="mini-copy"><strong>' + esc(state.profile.access_label || state.profile.display_name) + ' · ' + esc(profileColorLabel(state.profile)) + '</strong><p>Kode login dibedakan melalui warna avatar. Kedua kode memiliki hak akses tim yang sama.</p></div></div>' +
+    '</div></div></section></div>';
 }
+
 function renderTasks() {
   const rows = state.tasks.slice().sort((a, b) => {
     const rank = { in_review: 0, changes_requested: 1, in_progress: 2, todo: 3, approved: 4, done: 5, archived: 6 };
@@ -192,10 +211,11 @@ function renderTasks() {
     Object.keys(STATUS).map((key) => '<option value="' + key + '">' + esc(STATUS[key]) + '</option>').join("") +
     '</select><select id="task-priority-filter" class="filter-select" aria-label="Filter prioritas"><option value="">Semua prioritas</option>' +
     Object.keys(PRIORITY).map((key) => '<option value="' + key + '">' + esc(PRIORITY[key]) + '</option>').join("") +
-    '</select></div><section class="panel"><div class="task-table-wrap"><table class="task-table"><thead><tr><th>Pekerjaan</th><th>Status</th><th>PIC</th><th>Deadline</th><th>Prioritas</th></tr></thead><tbody>' +
-    (rows.length ? rows.map((task) => '<tr data-status="' + esc(task.status) + '" data-priority="' + esc(task.priority) + '" data-search="' + esc((task.title + " " + (task.description || "") + " " + profileName(task.assigned_to)).toLowerCase()) + '"><td><button class="table-task-button task-open" data-id="' + esc(task.id) + '">' + esc(task.title) + '</button><span class="table-description">' + esc(task.description || "Tidak ada deskripsi") + '</span></td><td>' + statusBadge(task.status) + ' ' + deadlineStatusBadge(task) + '</td><td>' + personChip(task.assigned_to) + '</td><td class="due-cell ' + (isLate(task) ? "due-overdue" : "") + '">' + esc(deadlineLabel(task, "—")) + '</td><td>' + esc(PRIORITY[task.priority] || task.priority) + '</td></tr>').join("") : '<tr><td colspan="5">' + emptyState("Belum ada tugas", "Tambahkan pekerjaan pertama untuk tim.") + '</td></tr>') +
+    '</select></div><section class="panel"><div class="task-table-wrap"><table class="task-table"><thead><tr><th>Pekerjaan</th><th>Status</th><th>PIC</th><th>Deadline</th><th>Prioritas</th><th>Aksi</th></tr></thead><tbody>' +
+    (rows.length ? rows.map((task) => '<tr data-status="' + esc(task.status) + '" data-priority="' + esc(task.priority) + '" data-search="' + esc((task.title + " " + (task.description || "") + " " + profileName(task.assigned_to)).toLowerCase()) + '"><td><button class="table-task-button task-open" data-id="' + esc(task.id) + '">' + esc(task.title) + '</button><span class="table-description">' + esc(task.description || "Tidak ada deskripsi") + '</span></td><td>' + statusBadge(task.status) + ' ' + deadlineStatusBadge(task) + '</td><td>' + personChip(task.assigned_to) + '</td><td class="due-cell ' + (isLate(task) ? "due-overdue" : "") + '">' + esc(deadlineLabel(task, "—")) + '</td><td>' + esc(PRIORITY[task.priority] || task.priority) + '</td><td><button class="btn btn-ghost btn-small delete-task" data-id="' + esc(task.id) + '">Hapus tugas</button></td></tr>').join("") : '<tr><td colspan="6">' + emptyState("Belum ada tugas", "Tambahkan pekerjaan pertama untuk tim.") + '</td></tr>') +
     '</tbody></table></div><div id="filter-empty" class="empty-inline" hidden>Tidak ada tugas yang cocok dengan filter ini.</div></section>';
 }
+
 function applyTaskFilters() {
   const needle = ($("#task-search")?.value || "").trim().toLowerCase();
   const status = $("#task-status-filter")?.value || "";
@@ -249,8 +269,35 @@ function renderContent() {
     return '<article class="content-item"><div class="content-item-main"><div class="content-item-copy"><h3>' + esc(item.title) + ' <span class="role-badge">' + esc(contentFormatLabel(item.content_format)) + '</span></h3><p class="content-caption">' + esc(item.caption || "Belum ada caption.") + '</p><div class="content-item-meta"><span>◷ ' + esc(contentScheduleLabel(item)) + '</span><span>' + item.files.length + ' file</span><span>Status: ' + esc(STATUS[item.status] || item.status) + '</span></div>' + (item.revision_note ? '<p class="revision-note-display"><strong>Catatan revisi:</strong> ' + esc(item.revision_note) + '</p>' : '') + '</div></div><div class="content-files-list">' + fileRows + '</div><div class="content-item-actions"><button class="btn btn-secondary btn-small copy-caption" data-id="' + esc(item.content_group_id) + '">Copy caption</button>' + (["todo", "changes_requested"].includes(item.status) ? '<button class="btn btn-primary btn-small content-mark-done" data-id="' + esc(item.content_group_id) + '">Sudah beres</button>' : '') + (item.status === "in_review" ? '<span class="section-note">Menunggu approval</span>' : '') + (item.status === "done" ? '<span class="section-note">Sudah Done</span>' : '') + '<button class="btn btn-ghost btn-small delete-content" data-id="' + esc(item.content_group_id) + '">Hapus content</button></div></article>';
   }).join("") : emptyState("Belum ada content", "Upload beberapa file sekaligus, tambahkan caption, format, dan jadwal publikasi.");
   return '<div class="page-heading"><div><h2>Content</h2><p>Kelola file Reels, Feed, dan Carousel; caption bisa disalin dan item dikirim untuk approval.</p></div><span class="role-badge">' + items.length + ' content</span></div>' +
-    '<section class="panel content-upload-panel"><div class="panel-header"><div><h3>Upload content</h3><p>Satu item content bisa memiliki banyak lampiran.</p></div></div><div class="panel-body"><form id="content-upload-form" class="form-stack"><div class="form-grid"><div class="field field-span"><label for="content-title-input">Judul content *</label><input id="content-title-input" name="title" required maxlength="160" placeholder="Contoh: Video promo Oktober"></div><div class="field"><label for="content-format-input">Format content *</label><select id="content-format-input" name="content_format" required><option value="reels">Reels</option><option value="feed">Feed</option><option value="carousel">Carousel</option></select></div><div class="field"><label for="content-date-input">Tanggal content</label><input id="content-date-input" name="scheduled_date" type="date"></div><div class="field"><label for="content-time-input">Jam content</label><input id="content-time-input" name="scheduled_time" type="time"></div><div class="field field-span"><label for="content-caption-input">Caption / catatan</label><textarea id="content-caption-input" name="caption" maxlength="5000" rows="3" placeholder="Tulis caption final, hashtag, atau catatan…"></textarea></div><div class="field field-span"><label for="content-file-input">File content * (bisa pilih banyak)</label><input id="content-file-input" name="files" type="file" multiple required><p class="field-help">Pilih satu atau beberapa file dalam satu content. File disimpan privat.</p></div></div><div class="heading-actions"><button class="btn btn-primary" type="submit">＋ Upload content</button></div></form></div></section>' +
+    '<section class="panel content-upload-panel"><div class="panel-header"><div><h3>Upload content</h3><p>Satu item content bisa memiliki banyak lampiran.</p></div></div><div class="panel-body"><form id="content-upload-form" class="form-stack"><div class="form-grid"><div class="field field-span"><label for="content-title-input">Judul content *</label><input id="content-title-input" name="title" required maxlength="160" placeholder="Contoh: Video promo Oktober"></div><div class="field"><label for="content-format-input">Format content *</label><select id="content-format-input" name="content_format" required><option value="reels">Reels</option><option value="feed">Feed</option><option value="carousel">Carousel</option></select></div><div class="field"><label for="content-date-input">Tanggal content</label><input id="content-date-input" name="scheduled_date" type="date"></div><div class="field"><label for="content-time-input">Jam content</label><input id="content-time-input" name="scheduled_time" type="time"></div><div class="field field-span"><label for="content-caption-input">Caption / catatan</label><textarea id="content-caption-input" name="caption" maxlength="5000" rows="3" placeholder="Tulis caption final, hashtag, atau catatan…"></textarea></div><div class="field field-span"><label>File content *</label><div id="content-file-list" data-file-list data-file-class="content-file-input" data-file-name="files"></div><p class="field-help">Pilih satu per satu. Setelah memilih file, kolom lampiran berikutnya muncul otomatis; file tetap privat.</p><p class="field-help">Maksimal 800 MiB per file sebagai batas aplikasi; kuota total gratis tetap berlaku.</p></div></div><div class="heading-actions"><button class="btn btn-primary" type="submit">＋ Upload content</button></div></form></div></section>' +
     '<section class="panel content-list-panel"><div class="panel-header"><div><h3>Content tim</h3><p>Caption, status approval, jadwal, dan semua file content.</p></div><span class="role-badge">' + items.length + ' content</span></div><div class="content-list">' + rows + '</div></section>';
+}
+function visitFieldsHTML(prefix, visit) {
+  const v = visit || {};
+  return '<div class="field"><label for="' + prefix + '-visit-title">Judul visit *</label><input id="' + prefix + '-visit-title" name="title" required maxlength="160" value="' + esc(v.title || "") + '" placeholder="Contoh: Meeting calon klien"></div>' +
+    '<div class="field"><label for="' + prefix + '-visit-city">Kota *</label><input id="' + prefix + '-visit-city" name="city" required maxlength="120" value="' + esc(v.city || "") + '" placeholder="Contoh: Bandung"></div>' +
+    '<div class="field"><label for="' + prefix + '-visit-date">Tanggal mulai *</label><input id="' + prefix + '-visit-date" name="visit_date" type="date" required value="' + esc(v.visit_date || "") + '"></div>' +
+    '<div class="field"><label for="' + prefix + '-visit-start">Jam mulai *</label><input id="' + prefix + '-visit-start" name="start_time" type="time" required value="' + esc(fmtClock(v.start_time) || "") + '"></div>' +
+    '<div class="field"><label for="' + prefix + '-visit-end-date">Sampai tanggal *</label><input id="' + prefix + '-visit-end-date" name="end_date" type="date" required value="' + esc(v.end_date || v.visit_date || "") + '"></div>' +
+    '<div class="field"><label for="' + prefix + '-visit-end-time">Sampai jam *</label><input id="' + prefix + '-visit-end-time" name="end_time" type="time" required value="' + esc(fmtClock(v.end_time) || "") + '"></div>' +
+    '<div class="field"><label for="' + prefix + '-visit-status">Status schedule *</label><select id="' + prefix + '-visit-status" name="status">' +
+    Object.keys(VISIT_STATUS).map((key) => '<option value="' + key + '"' + ((v.status || "planned") === key ? " selected" : "") + '>' + esc(VISIT_STATUS[key]) + '</option>').join("") +
+    '</select></div>' +
+    '<div class="field field-span"><label for="' + prefix + '-visit-job">Deskripsi job</label><textarea id="' + prefix + '-visit-job" name="job_description" maxlength="8000" rows="4" placeholder="Agenda, pihak yang ditemui, hasil yang ditargetkan, dan catatan lokasi…">' + esc(v.job_description || "") + '</textarea></div>';
+}
+function renderVisits() {
+  const visits = state.visitSchedules.slice().sort((a, b) => {
+    const dateDiff = String(a.visit_date).localeCompare(String(b.visit_date));
+    return dateDiff || String(a.start_time).localeCompare(String(b.start_time));
+  });
+  const rows = visits.map((visit) => '<tr><td><strong>' + esc(visit.title) + '</strong><span class="table-description">' + esc(visit.job_description || "Tidak ada deskripsi job") + '</span></td><td>' + esc(visit.city) + '</td><td class="visit-date-cell">' + esc(visitWindowLabel(visit)) + '</td><td><select class="filter-select visit-status-select" data-visit-status="' + esc(visit.id) + '" aria-label="Status visit">' +
+    Object.keys(VISIT_STATUS).map((key) => '<option value="' + key + '"' + (visit.status === key ? " selected" : "") + '>' + esc(VISIT_STATUS[key]) + '</option>').join("") +
+    '</select></td><td><div class="visit-row-actions"><button class="btn btn-secondary btn-small" data-edit-visit="' + esc(visit.id) + '">Edit</button><button class="btn btn-ghost btn-small" data-delete-visit="' + esc(visit.id) + '">Hapus</button></div></td></tr>').join("");
+  return '<div class="page-heading"><div><h2>Schedule visit offline</h2><p>Catat rencana kunjungan, lokasi kota, durasi, pekerjaan, dan status; perubahan akan dikirim ke Telegram.</p></div></div>' +
+    '<section class="panel visit-create-panel"><div class="panel-header"><div><h3>Tambah schedule visit</h3><p>Isi judul, kota, tanggal/jam mulai sampai selesai, dan deskripsi job.</p></div></div><div class="panel-body"><form id="visit-create-form" class="form-stack"><div class="form-grid">' + visitFieldsHTML("create", null) + '</div><div class="heading-actions"><button class="btn btn-primary" type="submit">＋ Simpan schedule</button></div></form></div></section>' +
+    '<section class="panel visit-list-panel"><div class="panel-header"><div><h3>Daftar schedule visit</h3><p>Fix, masih rencana, atau batal. Gunakan dropdown untuk mengganti status dengan cepat.</p></div><span class="role-badge">' + visits.length + ' visit</span></div>' +
+    (visits.length ? '<div class="task-table-wrap"><table class="task-table visit-table"><thead><tr><th>Judul / deskripsi job</th><th>Kota</th><th>Tanggal & waktu</th><th>Status</th><th>Aksi</th></tr></thead><tbody>' + rows + '</tbody></table></div>' : emptyState("Belum ada schedule visit", "Tambahkan rencana kunjungan offline melalui form di atas.")) +
+    '</section>';
 }
 function renderActivity() {
   const items = state.activities.slice().sort((a, b) => b.created_at.localeCompare(a.created_at));
@@ -275,8 +322,11 @@ function renderPage() {
   else if (state.view === "approvals") $("#page-content").innerHTML = renderApprovals();
   else if (state.view === "files") $("#page-content").innerHTML = renderFiles();
   else if (state.view === "content") $("#page-content").innerHTML = renderContent();
+  else if (state.view === "visits") $("#page-content").innerHTML = renderVisits();
   else $("#page-content").innerHTML = renderActivity();
+  initializeFilePickers($("#page-content"));
 }
+
 function formatBytes(bytes) {
   const n = Number(bytes || 0);
   if (n < 1024) return n + " B";
@@ -289,14 +339,15 @@ async function loadWorkspace() {
   if (!supabase || !state.user) return;
   state.loading = true;
   showLoading();
-  const [profileRes, profilesRes, tasksRes, commentsRes, attachmentsRes, contentRes, activityRes] = await Promise.all([
-    supabase.from("profiles").select("id,display_name,role,created_at").eq("id", state.user.id).maybeSingle(),
-    supabase.from("profiles").select("id,display_name,role,created_at").order("display_name"),
+  const [profileRes, profilesRes, tasksRes, commentsRes, attachmentsRes, contentRes, activityRes, visitsRes] = await Promise.all([
+    supabase.from("profiles").select("id,display_name,role,access_label,access_color,created_at").eq("id", state.user.id).maybeSingle(),
+    supabase.from("profiles").select("id,display_name,role,access_label,access_color,created_at").order("display_name"),
     supabase.from("tasks").select("*").order("created_at", { ascending: false }),
     supabase.from("task_comments").select("id,task_id,user_id,comment,created_at").order("created_at", { ascending: true }),
-    supabase.from("task_attachments").select("id,task_id,path,file_name,content_type,size_bytes,uploaded_by,created_at,attachment_type").order("created_at", { ascending: false }),
-    supabase.from("content_assets").select("id,title,caption,scheduled_date,scheduled_time,path,file_name,content_type,size_bytes,uploaded_by,created_at,content_group_id,status,revision_note,content_format").order("created_at", { ascending: false }),
-    supabase.from("activity_log").select("id,task_id,actor_id,action,details,created_at").order("created_at", { ascending: false }).limit(100)
+    supabase.from("task_attachments").select("id,task_id,path,storage_parts,file_name,content_type,size_bytes,uploaded_by,created_at,attachment_type").order("created_at", { ascending: false }),
+    supabase.from("content_assets").select("id,title,caption,scheduled_date,scheduled_time,path,storage_parts,file_name,content_type,size_bytes,uploaded_by,created_at,content_group_id,status,revision_note,content_format").order("created_at", { ascending: false }),
+    supabase.from("activity_log").select("id,task_id,actor_id,action,details,created_at").order("created_at", { ascending: false }).limit(100),
+    supabase.from("visit_schedules").select("*").order("visit_date", { ascending: true }).order("start_time", { ascending: true })
   ]);
   if (profileRes.error || !profileRes.data) {
     const wasAnonymous = Boolean(state.user?.is_anonymous);
@@ -315,14 +366,50 @@ async function loadWorkspace() {
   state.attachments = attachmentsRes.data || [];
   state.contentAssets = contentRes.data || [];
   state.activities = activityRes.data || [];
+  state.visitSchedules = visitsRes.data || [];
   state.loading = false;
-  $("#profile-name").textContent = state.profile.display_name;
-  $("#profile-role").textContent = "Panel " + roleLabel(state.profile.role);
-  $("#profile-avatar").textContent = initials(state.profile.display_name);
+  $("#profile-name").textContent = state.profile.access_label || state.profile.display_name;
+  $("#profile-role").textContent = (state.profile.access_label || "Kode akses") + " · " + profileColorLabel(state.profile);
+  $("#profile-avatar").textContent = initials(state.profile.access_label || state.profile.display_name);
+  $("#profile-avatar").classList.remove("avatar-code-red", "avatar-code-pink");
+  $("#profile-avatar").classList.add("avatar-code-" + profileColorToken(state.profile));
   $("#today-label").textContent = fmtDate(new Date().toISOString().slice(0, 10), { weekday: "short", day: "numeric", month: "short" });
   $("#auth-shell").hidden = true;
   $("#app-shell").hidden = false;
   renderPage();
+}
+
+function initializeFilePickers(root = document) {
+  $("[data-file-list]", root).forEach((container) => {
+    const addRow = () => {
+      const row = document.createElement("div");
+      row.className = "dynamic-file-row";
+      const input = document.createElement("input");
+      input.type = "file";
+      input.className = "dynamic-file-input " + (container.dataset.fileClass || "");
+      input.name = container.dataset.fileName || "files";
+      input.setAttribute("aria-label", "Pilih file");
+      if (container.dataset.accept) input.accept = container.dataset.accept;
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "btn btn-ghost btn-small remove-file-picker";
+      remove.textContent = "×";
+      remove.setAttribute("aria-label", "Hapus pilihan file");
+      input.addEventListener("change", () => {
+        if (!input.files || !input.files.length) return;
+        const inputs = Array.from(container.querySelectorAll("input[type=file]"));
+        if (inputs[inputs.length - 1] === input) addRow();
+      });
+      remove.addEventListener("click", () => {
+        const rows = container.querySelectorAll(".dynamic-file-row");
+        if (rows.length <= 1) { input.value = ""; return; }
+        row.remove();
+      });
+      row.append(input, remove);
+      container.appendChild(row);
+    };
+    if (!container.querySelector("input[type=file]")) addRow();
+  });
 }
 async function enterApp(user) {
   state.user = user;
@@ -367,10 +454,11 @@ function openTaskModal(taskId) {
   const actions = taskActionButtons(task);
   $("#modal-root").innerHTML = '<div class="modal-backdrop" data-backdrop><section class="modal-card modal-wide" role="dialog" aria-modal="true" aria-labelledby="detail-task-title"><div class="modal-header"><div><div class="task-subline">' + statusBadge(task.status) + deadlineStatusBadge(task) + '<span class="priority-' + esc(task.priority) + '"><span class="priority-dot"></span>' + esc(PRIORITY[task.priority] || task.priority) + '</span></div><h2 id="detail-task-title" style="margin-top:7px">' + esc(task.title) + '</h2><p>Dibuat ' + esc(fmtDateTime(task.created_at)) + '</p></div><button class="icon-button close-modal" aria-label="Tutup">×</button></div><div class="modal-body"><div class="detail-metadata"><div class="detail-meta"><span>Penanggung jawab</span><strong>' + esc(profileName(task.assigned_to)) + '</strong></div><div class="detail-meta"><span>Deadline</span><strong class="' + (isLate(task) ? "due-overdue" : "") + '">' + esc(deadlineLabel(task, "Belum diatur")) + '</strong></div><div class="detail-meta"><span>Dibuat oleh</span><strong>' + esc(profileName(task.created_by)) + '</strong></div></div><h3 class="section-subtitle" style="margin-top:15px">Deskripsi pekerjaan</h3><div class="detail-description">' + esc(task.description || "Belum ada deskripsi.") + '</div><div class="heading-actions" style="margin-top:14px">' + actions + '</div><div id="revision-box" class="modal-form-note" hidden><form id="revision-form"><label class="field-label" for="revision-note">Deskripsi revisi</label><textarea id="revision-note" name="comment" required maxlength="3000" style="display:block;width:100%;margin:8px 0;border:1px solid #e3d2a9;border-radius:8px;padding:10px;font:inherit;min-height:75px" placeholder="Jelaskan apa yang harus diperbaiki…"></textarea><button type="submit" class="btn btn-warning btn-small">Kirim revisi</button></form></div><h3 class="section-subtitle">Lampiran <span class="role-badge">' + files.length + '</span></h3><div class="file-warning"><strong>Privasi:</strong><span>Unggah hanya file yang diizinkan untuk penyimpanan cloud.</span></div>' +
     (files.length ? files.map((file) => '<div class="file-row"><div class="file-type-icon">' + esc((file.file_name.split(".").pop() || "FILE").slice(0, 4).toUpperCase()) + '</div><div class="file-info"><strong>' + esc(file.file_name) + '</strong><p>' + esc(file.attachment_type === "example" ? "Contoh file (opsional)" : "File pekerjaan") + ' · ' + esc(formatBytes(file.size_bytes)) + ' · ' + esc(fmtDateTime(file.created_at)) + '</p></div><div class="file-row-actions"><button class="btn btn-secondary btn-small download-file" data-id="' + esc(file.id) + '">Unduh</button>' + (!["in_review", "approved", "done", "archived"].includes(task.status) ? '<button class="btn btn-primary btn-small submit-task-file" data-id="' + esc(task.id) + '">Ajukan approval</button>' : '') + '<button class="btn btn-ghost btn-small delete-task-file" data-id="' + esc(file.id) + '">Hapus</button></div></div>').join("") : '<div class="empty-inline">Belum ada lampiran pada tugas ini.</div>') +
-    '<form id="upload-form" class="form-stack" style="gap:8px;margin-top:12px"><div class="field"><label for="task-file-work-input">Lampiran file pekerjaan (bisa banyak)</label><input id="task-file-work-input" name="work_files" type="file" multiple><p class="field-help">Pilih file hasil kerja yang akan dinilai.</p></div><div class="field"><label for="task-file-example-input">Lampiran contoh file (opsional, bisa banyak)</label><input id="task-file-example-input" name="example_files" type="file" multiple><p class="field-help">Contoh referensi, template, atau brief tambahan.</p></div><button class="btn btn-secondary" type="submit">Unggah lampiran terpilih</button></form><h3 class="section-subtitle">Komentar & catatan <span class="role-badge">' + comments.length + '</span></h3><div class="comment-list">' + (comments.length ? comments.map((c) => {
+    '<form id="upload-form" class="form-stack" style="gap:8px;margin-top:12px"><div class="field"><label>Lampiran file pekerjaan</label><div id="task-work-file-list" data-file-list data-file-class="task-file-work-input" data-file-name="work_files"></div><p class="field-help">Pilih file satu per satu; kolom pemilihan berikutnya muncul otomatis.</p></div><div class="field"><label>Lampiran contoh file (opsional)</label><div id="task-example-file-list" data-file-list data-file-class="task-file-example-input" data-file-name="example_files"></div><p class="field-help">Contoh referensi, template, atau brief tambahan.</p></div><p class="field-help">Maksimal 800 MiB per file sebagai batas aplikasi. Batas total penyimpanan gratis tetap berlaku.</p><button class="btn btn-secondary" type="submit">Unggah lampiran terpilih</button></form><h3 class="section-subtitle">Komentar & catatan <span class="role-badge">' + comments.length + '</span></h3><div class="comment-list">' + (comments.length ? comments.map((c) => {
       const author = state.profiles.find((p) => p.id === c.user_id);
       return '<article class="comment"><div class="comment-top"><strong>' + esc(author ? author.display_name : "Anggota tim") + '</strong><time>' + esc(fmtDateTime(c.created_at)) + '</time></div><p>' + esc(c.comment) + '</p></article>';
     }).join("") : '<div class="empty-inline">Belum ada komentar. Gunakan bagian ini untuk koordinasi.</div>') + '</div><form id="comment-form" class="comment-form"><textarea name="comment" rows="2" required maxlength="3000" placeholder="Tulis komentar atau update singkat…"></textarea><button type="submit" class="btn btn-primary btn-small">Kirim</button></form></div><div class="modal-footer"><button type="button" class="btn btn-secondary close-modal">Tutup</button></div></section></div>';
+  initializeFilePickers($("#modal-root"));
 }
 async function refreshTaskDetail(taskId) {
   await loadWorkspace();
@@ -436,7 +524,6 @@ async function addComment(form) {
   await refreshTaskDetail(taskId);
 }
 const STORAGE_BUCKET = "ruang-kerja-files";
-const MAX_STORAGE_FILE_SIZE = 50 * 1024 * 1024;
 async function notifyTelegram(eventType, title, status, details = "") {
   if (!supabase) return false;
   try {
@@ -480,38 +567,77 @@ async function notifyTelegram(eventType, title, status, details = "") {
 function safeFilename(name) {
   return String(name || "file").normalize("NFKC").replace(/[^a-zA-Z0-9._-]+/g, "_").replace(/^[.]+/, "").slice(0, 100) || "file";
 }
-async function uploadPrivateFile(taskId, file) {
+async function uploadPrivateFile(taskId, file, onPart = () => {}) {
   if (!file || file.size < 1) throw new Error("File kosong.");
-  if (file.size > MAX_STORAGE_FILE_SIZE) {
-    throw new Error("File melebihi batas upload yang didukung portal. Kompres atau pilih file yang lebih kecil.");
+  if (file.size > MAX_STORAGE_FILE_SIZE) throw new Error("File " + file.name + " melebihi batas aplikasi 800 MiB.");
+  const rootPath = taskId === "content"
+    ? "content/" + state.user.id + "/" + crypto.randomUUID()
+    : taskId + "/" + state.user.id + "/" + crypto.randomUUID();
+  const totalParts = Math.ceil(file.size / STORAGE_CHUNK_SIZE);
+  if (totalParts > 100) throw new Error("File ini membutuhkan lebih dari 100 bagian upload.");
+  const paths = [];
+  try {
+    for (let part = 0; part < totalParts; part++) {
+      const start = part * STORAGE_CHUNK_SIZE;
+      const end = Math.min(start + STORAGE_CHUNK_SIZE, file.size);
+      const partPath = rootPath + "/part-" + String(part + 1).padStart(4, "0");
+      const { error } = await supabase.storage.from(STORAGE_BUCKET).upload(partPath, file.slice(start, end), {
+        cacheControl: "0", contentType: file.type || "application/octet-stream", upsert: false
+      });
+      if (error) throw error;
+      paths.push(partPath);
+      onPart(part + 1, totalParts);
+    }
+    return { path: rootPath, storage_parts: paths, size: file.size };
+  } catch (error) {
+    if (paths.length) await removeStorageObjects(paths).catch(() => {});
+    throw error;
   }
-  const path = taskId + "/" + state.user.id + "/" + crypto.randomUUID() + "-" + safeFilename(file.name);
-  const { data, error } = await supabase.storage.from(STORAGE_BUCKET).upload(path, file, {
-    cacheControl: "0",
-    contentType: file.type || "application/octet-stream",
-    upsert: false
-  });
-  if (error) throw new Error(error.message || "Penyimpanan file gagal menerima upload.");
-  return { path: data.path || path, size: file.size };
+}
+async function removeStorageObjects(paths) {
+  const uniquePaths = [...new Set((paths || []).filter((path) => typeof path === "string" && path))];
+  for (let start = 0; start < uniquePaths.length; start += 100) {
+    const { error } = await supabase.storage.from(STORAGE_BUCKET).remove(uniquePaths.slice(start, start + 100));
+    if (error) throw error;
+  }
+}
+async function downloadStoredFile(item) {
+  const paths = getStoredPaths(item);
+  if (!paths.length) throw new Error("Bagian file tidak ditemukan.");
+  const pieces = [];
+  for (let index = 0; index < paths.length; index++) {
+    const { data, error } = await supabase.storage.from(STORAGE_BUCKET).download(paths[index]);
+    if (error) throw error;
+    pieces.push(data);
+    if (paths.length > 1) toast("Mengunduh bagian " + (index + 1) + " dari " + paths.length + "…");
+  }
+  const blob = new Blob(pieces, { type: item.content_type || "application/octet-stream" });
+  const objectUrl = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = objectUrl; link.rel = "noopener"; link.download = item.file_name || "unduhan";
+  document.body.appendChild(link); link.click(); link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60000);
 }
 async function uploadTaskFile(form) {
   const task = taskById(state.selectedTaskId);
-  const workFiles = Array.from($("#task-file-work-input")?.files || []).map((file) => ({ file, attachment_type: "work" }));
-  const exampleFiles = Array.from($("#task-file-example-input")?.files || []).map((file) => ({ file, attachment_type: "example" }));
+  const workFiles = $$(".task-file-work-input", form).flatMap((input) => Array.from(input.files || [])).map((file) => ({ file, attachment_type: "work" }));
+  const exampleFiles = $$(".task-file-example-input", form).flatMap((input) => Array.from(input.files || [])).map((file) => ({ file, attachment_type: "example" }));
   const selected = [...workFiles, ...exampleFiles];
   if (!task || !selected.length) return toast("Pilih setidaknya satu file pekerjaan atau contoh.", "error");
-  const oversized = selected.find(({ file }) => file.size > MAX_STORAGE_FILE_SIZE);
-  if (oversized) return toast("File " + oversized.file.name + " terlalu besar. Kompres atau pilih file yang lebih kecil.", "error");
+  const oversized = selected.find(({ file }) => file.size < 1 || file.size > MAX_STORAGE_FILE_SIZE);
+  if (oversized) return toast("File " + oversized.file.name + " kosong atau lebih besar dari 800 MiB.", "error");
   const button = $('button[type="submit"]', form);
-  button.disabled = true; button.textContent = "Mengunggah file…";
+  button.disabled = true;
   const uploaded = [];
   try {
     for (const entry of selected) {
-      const saved = await uploadPrivateFile(task.id, entry.file);
+      const saved = await uploadPrivateFile(task.id, entry.file, (part, total) => {
+        button.textContent = "Mengunggah " + entry.file.name + " (" + part + "/" + total + ")…";
+      });
       uploaded.push({ ...saved, ...entry });
     }
-    const rows = uploaded.map(({ path, file, attachment_type }) => ({
-      task_id: task.id, path, file_name: file.name.slice(0, 255),
+    const rows = uploaded.map(({ path, storage_parts, file, attachment_type }) => ({
+      task_id: task.id, path, storage_parts, file_name: file.name.slice(0, 255),
       content_type: file.type || "application/octet-stream", size_bytes: file.size,
       uploaded_by: state.user.id, attachment_type
     }));
@@ -521,28 +647,27 @@ async function uploadTaskFile(form) {
     await notifyTelegram("task_files_uploaded", task.title, STATUS[task.status], uploaded.length + " lampiran baru: " + uploaded.map((x) => x.file.name).join(", "));
     await refreshTaskDetail(task.id);
   } catch (error) {
-    if (uploaded.length) await supabase.storage.from(STORAGE_BUCKET).remove(uploaded.map((x) => x.path)).catch(() => {});
-    button.disabled = false; button.textContent = "Unggah lampiran terpilih";
+    const uploadedPaths = uploaded.flatMap((item) => item.storage_parts || [item.path]);
+    if (uploadedPaths.length) await removeStorageObjects(uploadedPaths).catch(() => {});
+    button.disabled = false;
+    button.textContent = "Unggah lampiran terpilih";
     toast("Upload belum selesai: " + (error.message || "periksa koneksi dan kapasitas penyimpanan"), "error");
   }
 }
+
 async function downloadFile(attachmentId) {
   const file = state.attachments.find((item) => item.id === attachmentId);
   if (!file) return toast("Lampiran tidak ditemukan.", "error");
-  try {
-    const { data, error } = await supabase.storage.from(STORAGE_BUCKET).createSignedUrl(file.path, 60, { download: file.file_name });
-    if (error) throw error;
-    if (!data?.signedUrl) throw new Error("Supabase tidak memberikan tautan unduhan.");
-    const link = document.createElement("a"); link.href = data.signedUrl; link.rel = "noopener"; link.download = file.file_name;
-    document.body.appendChild(link); link.click(); link.remove();
-  } catch (error) { toast("File tidak dapat diunduh: " + (error.message || "kesalahan tidak diketahui"), "error"); }
+  try { await downloadStoredFile(file); }
+  catch (error) { toast("File tidak dapat diunduh: " + (error.message || "kesalahan tidak diketahui"), "error"); }
 }
+
 async function deleteTaskAttachment(attachmentId) {
   const file = state.attachments.find((item) => item.id === attachmentId);
   if (!file) return toast("Lampiran tidak ditemukan.", "error");
   if (!window.confirm('Hapus file "' + file.file_name + '" dari semua pengguna?')) return;
-  const { error: storageError } = await supabase.storage.from(STORAGE_BUCKET).remove([file.path]);
-  if (storageError) return toast("File belum dapat dihapus: " + storageError.message, "error");
+  try { await removeStorageObjects(getStoredPaths(file)); }
+  catch (error) { return toast("File belum dapat dihapus: " + (error.message || ""), "error"); }
   const { error } = await supabase.from("task_attachments").delete().eq("id", attachmentId);
   if (error) return toast("File terhapus dari storage, tetapi catatan belum terhapus: " + error.message, "error");
   toast("Lampiran berhasil dihapus.");
@@ -550,6 +675,22 @@ async function deleteTaskAttachment(attachmentId) {
   await loadWorkspace();
   if ($("#modal-root").innerHTML && taskId) openTaskModal(taskId);
 }
+async function deleteTask(taskId) {
+  const task = taskById(taskId);
+  if (!task) return toast("Tugas tidak ditemukan.", "error");
+  const files = state.attachments.filter((item) => item.task_id === taskId);
+  if (!window.confirm('Hapus tugas "' + task.title + '" beserta ' + files.length + ' catatan lampiran? Penghapusan berlaku untuk kedua kode login dan tidak dapat dibatalkan.')) return;
+  try { await removeStorageObjects(files.flatMap((file) => getStoredPaths(file))); }
+  catch (error) { return toast("Tugas belum dihapus karena file gagal dibersihkan: " + (error.message || ""), "error"); }
+  const { error } = await supabase.from("tasks").delete().eq("id", taskId);
+  if (error) return toast("Tugas belum dapat dihapus: " + error.message, "error");
+  $("#modal-root").innerHTML = "";
+  toast("Tugas dan lampirannya berhasil dihapus.");
+  await loadWorkspace();
+  state.view = "tasks";
+  renderPage();
+}
+
 async function uploadContent(form) {
   const data = new FormData(form);
   const title = String(data.get("title") || "").trim();
@@ -557,65 +698,64 @@ async function uploadContent(form) {
   const scheduledDate = String(data.get("scheduled_date") || "") || null;
   const scheduledTime = String(data.get("scheduled_time") || "") || null;
   const contentFormat = String(data.get("content_format") || "feed");
-  const files = Array.from($("#content-file-input")?.files || []);
+  const files = $$(".content-file-input", form).flatMap((input) => Array.from(input.files || []));
   if (!title) return toast("Judul content wajib diisi.", "error");
   if (!files.length) return toast("Pilih setidaknya satu file content.", "error");
   const oversized = files.find((file) => file.size < 1 || file.size > MAX_STORAGE_FILE_SIZE);
-  if (oversized) return toast("Periksa ukuran file " + oversized.name + " lalu pilih file yang didukung.", "error");
+  if (oversized) return toast("Periksa ukuran file " + oversized.name + "; batas aplikasi 800 MiB per file.", "error");
   const button = $('button[type="submit"]', form);
-  button.disabled = true; button.textContent = "Mengunggah content…";
+  button.disabled = true;
   const groupId = crypto.randomUUID();
   const uploaded = [];
   try {
     for (const file of files) {
-      const path = "content/" + state.user.id + "/" + crypto.randomUUID() + "-" + safeFilename(file.name);
-      const { data: uploadData, error } = await supabase.storage.from(STORAGE_BUCKET).upload(path, file, {
-        cacheControl: "0", contentType: file.type || "application/octet-stream", upsert: false
+      const saved = await uploadPrivateFile("content", file, (part, total) => {
+        button.textContent = "Mengunggah " + file.name + " (" + part + "/" + total + ")…";
       });
-      if (error) throw error;
-      uploaded.push({ path: uploadData.path || path, file });
+      uploaded.push({ ...saved, file });
     }
-    const rows = uploaded.map(({ path, file }) => ({
+    const rows = uploaded.map(({ path, storage_parts, file }) => ({
       content_group_id: groupId, title, caption, scheduled_date: scheduledDate,
       scheduled_time: scheduledTime, content_format: contentFormat, status: "todo", revision_note: "",
-      path, file_name: file.name.slice(0, 255), content_type: file.type || "application/octet-stream",
+      path, storage_parts, file_name: file.name.slice(0, 255), content_type: file.type || "application/octet-stream",
       size_bytes: file.size, uploaded_by: state.user.id
     }));
     const { error: metadataError } = await supabase.from("content_assets").insert(rows);
     if (metadataError) throw metadataError;
     form.reset();
+    $("#content-file-list").innerHTML = "";
+    initializeFilePickers(form);
     toast("Content dan " + uploaded.length + " file berhasil diunggah.");
     await notifyTelegram("content_created", title, "Belum diserahkan", contentFormatLabel(contentFormat) + " · " + uploaded.length + " file · Jadwal: " + (scheduledDate || "belum diatur") + (scheduledTime ? " " + scheduledTime : ""));
     state.view = "content";
     await loadWorkspace();
   } catch (error) {
-    if (uploaded.length) await supabase.storage.from(STORAGE_BUCKET).remove(uploaded.map((x) => x.path)).catch(() => {});
-    button.disabled = false; button.textContent = "＋ Upload content";
+    if (uploaded.length) await removeStorageObjects(uploaded.flatMap((x) => x.storage_parts || [x.path])).catch(() => {});
+    button.disabled = false;
+    button.textContent = "＋ Upload content";
     toast("Content belum tersimpan: " + (error.message || "periksa koneksi dan kapasitas penyimpanan"), "error");
   }
 }
+
 async function downloadContentFile(contentId) {
   const item = state.contentAssets.find((asset) => asset.id === contentId);
   if (!item) return toast("File content tidak ditemukan.", "error");
-  try {
-    const { data, error } = await supabase.storage.from(STORAGE_BUCKET).createSignedUrl(item.path, 60, { download: item.file_name });
-    if (error) throw error;
-    if (!data?.signedUrl) throw new Error("Tautan unduhan belum tersedia.");
-    const link = document.createElement("a"); link.href = data.signedUrl; link.rel = "noopener"; link.download = item.file_name;
-    document.body.appendChild(link); link.click(); link.remove();
-  } catch (error) { toast("Content tidak bisa diunduh: " + (error.message || "kesalahan tidak diketahui"), "error"); }
+  try { await downloadStoredFile(item); }
+  catch (error) { toast("Content tidak bisa diunduh: " + (error.message || "kesalahan tidak diketahui"), "error"); }
 }
+
 async function deleteContent(contentGroupId) {
   const group = groupContentAssets().find((asset) => asset.content_group_id === contentGroupId);
   if (!group) return toast("Content tidak ditemukan.", "error");
   if (!window.confirm("Hapus content “" + group.title + "” beserta " + group.files.length + " file untuk semua pengguna?")) return;
-  const { error: deleteFileError } = await supabase.storage.from(STORAGE_BUCKET).remove(group.files.map((f) => f.path));
-  if (deleteFileError) return toast("File belum dapat dihapus: " + deleteFileError.message, "error");
+  try { await removeStorageObjects(group.files.flatMap((file) => getStoredPaths(file))); }
+  catch (error) { return toast("File belum dapat dihapus: " + (error.message || ""), "error"); }
   const { error } = await supabase.from("content_assets").delete().eq("content_group_id", contentGroupId);
   if (error) return toast("File terhapus, tetapi data content belum terhapus: " + error.message, "error");
   toast("Content dan semua lampirannya berhasil dihapus.");
   await loadWorkspace();
 }
+
 async function changeContentStatus(contentGroupId, status, revisionNote = "") {
   const group = groupContentAssets().find((asset) => asset.content_group_id === contentGroupId);
   if (!group) return toast("Content tidak ditemukan.", "error");
@@ -638,6 +778,80 @@ async function sendContentRevision(form) {
   if (!groupId || !note) return toast("Deskripsi revisi wajib diisi.", "error");
   $("#modal-root").innerHTML = "";
   await changeContentStatus(groupId, "changes_requested", note);
+}
+function openVisitEditor(visitId) {
+  const visit = state.visitSchedules.find((item) => item.id === visitId);
+  if (!visit) return toast("Schedule visit tidak ditemukan.", "error");
+  $("#modal-root").innerHTML = '<div class="modal-backdrop" data-backdrop><section class="modal-card modal-wide" role="dialog" aria-modal="true" aria-labelledby="visit-edit-title"><div class="modal-header"><div><h2 id="visit-edit-title">Edit schedule visit</h2><p>' + esc(visit.title) + '</p></div><button class="icon-button close-modal" aria-label="Tutup">×</button></div><form id="visit-edit-form"><input type="hidden" name="id" value="' + esc(visit.id) + '"><div class="modal-body"><div class="form-grid">' + visitFieldsHTML("edit", visit) + '</div></div><div class="modal-footer"><button type="button" class="btn btn-secondary close-modal">Batal</button><button type="submit" class="btn btn-primary">Simpan perubahan</button></div></form></section></div>';
+}
+function visitPayload(form) {
+  const data = new FormData(form);
+  return {
+    title: String(data.get("title") || "").trim(),
+    city: String(data.get("city") || "").trim(),
+    visit_date: String(data.get("visit_date") || ""),
+    start_time: String(data.get("start_time") || ""),
+    end_date: String(data.get("end_date") || ""),
+    end_time: String(data.get("end_time") || ""),
+    job_description: String(data.get("job_description") || "").trim(),
+    status: String(data.get("status") || "planned")
+  };
+}
+async function saveVisitSchedule(form) {
+  const data = new FormData(form);
+  const id = String(data.get("id") || "");
+  const payload = visitPayload(form);
+  if (!payload.title || !payload.city || !payload.visit_date || !payload.start_time || !payload.end_date || !payload.end_time) {
+    return toast("Judul, kota, tanggal dan jam mulai/selesai wajib diisi.", "error");
+  }
+  const start = new Date(payload.visit_date + "T" + payload.start_time);
+  const end = new Date(payload.end_date + "T" + payload.end_time);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) return toast("Waktu selesai tidak boleh lebih awal daripada waktu mulai.", "error");
+  if (!VISIT_STATUS[payload.status]) return toast("Pilih status visit yang tersedia.", "error");
+  const button = $('button[type="submit"]', form);
+  button.disabled = true;
+  button.textContent = id ? "Menyimpan…" : "Membuat schedule…";
+  let saved, error;
+  if (id) {
+    ({ data: saved, error } = await supabase.from("visit_schedules").update({ ...payload, updated_at: new Date().toISOString() }).eq("id", id).select("*").single());
+  } else {
+    ({ data: saved, error } = await supabase.from("visit_schedules").insert({ ...payload, created_by: state.user.id }).select("*").single());
+  }
+  if (error) {
+    button.disabled = false;
+    button.textContent = id ? "Simpan perubahan" : "＋ Simpan schedule";
+    return toast("Schedule visit belum tersimpan: " + error.message, "error");
+  }
+  $("#modal-root").innerHTML = "";
+  toast(id ? "Schedule visit berhasil diperbarui." : "Schedule visit berhasil dibuat.");
+  const prefix = id ? "Jadwal diperbarui" : "Jadwal baru";
+  await notifyTelegram("visit_schedule", saved.title, VISIT_STATUS[saved.status], prefix + " · Kota: " + saved.city + " · " + visitWindowLabel(saved) + " · Job: " + (saved.job_description || "tanpa deskripsi"));
+  state.view = "visits";
+  await loadWorkspace();
+}
+async function changeVisitStatus(visitId, newStatus) {
+  if (!VISIT_STATUS[newStatus]) return;
+  const visit = state.visitSchedules.find((item) => item.id === visitId);
+  if (!visit) return;
+  const { data, error } = await supabase.from("visit_schedules").update({ status: newStatus, updated_at: new Date().toISOString() }).eq("id", visitId).select("*").single();
+  if (error) {
+    toast("Status visit belum berubah: " + error.message, "error");
+    renderPage();
+    return;
+  }
+  toast("Status visit diubah menjadi " + VISIT_STATUS[newStatus] + ".");
+  await notifyTelegram("visit_schedule", visit.title, VISIT_STATUS[newStatus], "Status visit diperbarui · Kota: " + visit.city + " · " + visitWindowLabel(data));
+  await loadWorkspace();
+}
+async function deleteVisitSchedule(visitId) {
+  const visit = state.visitSchedules.find((item) => item.id === visitId);
+  if (!visit) return toast("Schedule visit tidak ditemukan.", "error");
+  if (!window.confirm('Hapus schedule "' + visit.title + '" di ' + visit.city + '? Penghapusan berlaku untuk kedua kode login.')) return;
+  const { error } = await supabase.from("visit_schedules").delete().eq("id", visitId);
+  if (error) return toast("Schedule visit belum dapat dihapus: " + error.message, "error");
+  toast("Schedule visit berhasil dihapus.");
+  await notifyTelegram("visit_deleted", visit.title, "Dihapus", "Kota: " + visit.city + " · " + visitWindowLabel(visit));
+  await loadWorkspace();
 }
 async function deriveBackupKey(passphrase, salt, usages) {
   const material = await crypto.subtle.importKey("raw", new TextEncoder().encode(passphrase), "PBKDF2", false, ["deriveKey"]);
@@ -840,6 +1054,7 @@ async function logout() {
   state.attachments = [];
   state.contentAssets = [];
   state.activities = [];
+  state.visitSchedules = [];
   showAuth("Kamu sudah keluar dari ruang kerja.", "success");
 }
 
@@ -909,6 +1124,12 @@ document.addEventListener("click", async (event) => {
   if (nav) { changeView(nav.dataset.view); return; }
   if (event.target.closest("#test-telegram-button")) { toast("Mengirim tes notifikasi Telegram…", "success"); const sent = await notifyTelegram("task_status", "Tes notifikasi Telegram", "Tes koneksi", "Pesan percobaan dari portal Ruang Kerja."); if (sent) toast("Tes berhasil dikirim ke Telegram.", "success"); return; }
   if (event.target.closest("#new-task-top") || event.target.closest("[data-create-task]")) { openCreateModal(); return; }
+  const editVisit = event.target.closest("[data-edit-visit]");
+  if (editVisit) { openVisitEditor(editVisit.dataset.editVisit); return; }
+  const deleteVisit = event.target.closest("[data-delete-visit]");
+  if (deleteVisit) { await deleteVisitSchedule(deleteVisit.dataset.deleteVisit); return; }
+  const deleteTaskButton = event.target.closest(".delete-task");
+  if (deleteTaskButton) { await deleteTask(deleteTaskButton.dataset.id); return; }
   if (event.target.closest("#mobile-menu-button")) { $("#sidebar").classList.toggle("mobile-open"); return; }
   if (event.target.closest("#logout-button")) { await logout(); return; }
   const openTask = event.target.closest(".task-open");
@@ -951,7 +1172,11 @@ document.addEventListener("click", async (event) => {
   if (event.target.matches("[data-backdrop]")) { closeModal(); }
 });
 document.addEventListener("input", (event) => { if (event.target.id === "task-search") applyTaskFilters(); });
-document.addEventListener("change", (event) => {
+document.addEventListener("change", async (event) => {
+  if (event.target.matches("[data-visit-status]")) {
+    await changeVisitStatus(event.target.dataset.visitStatus, event.target.value);
+    return;
+  }
   if (event.target.id === "task-status-filter" || event.target.id === "task-priority-filter") applyTaskFilters();
 });
 document.addEventListener("submit", async (event) => {
@@ -961,6 +1186,7 @@ document.addEventListener("submit", async (event) => {
   else if (event.target.id === "upload-form") { event.preventDefault(); await uploadTaskFile(event.target); }
   else if (event.target.id === "content-upload-form") { event.preventDefault(); await uploadContent(event.target); }
   else if (event.target.id === "content-revision-form") { event.preventDefault(); await sendContentRevision(event.target); }
+  else if (event.target.id === "visit-create-form" || event.target.id === "visit-edit-form") { event.preventDefault(); await saveVisitSchedule(event.target); }
 });
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && $("#modal-root").innerHTML) closeModal();
@@ -985,6 +1211,7 @@ if (!configured) {
       state.attachments = [];
       state.contentAssets = [];
       state.activities = [];
+      state.visitSchedules = [];
       showAuth();
     }
   });
