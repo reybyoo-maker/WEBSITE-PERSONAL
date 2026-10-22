@@ -202,6 +202,7 @@ create table public.tasks (
   title text not null check (char_length(trim(title)) between 2 and 140),
   description text not null default '' check (char_length(description) <= 8000),
   due_date date,
+  due_time time without time zone,
   priority text not null default 'normal' check (priority in ('low', 'normal', 'high', 'urgent')),
   status text not null default 'todo' check (status in ('todo', 'in_progress', 'in_review', 'changes_requested', 'approved', 'done', 'archived')),
   created_by uuid not null references public.profiles(id),
@@ -235,6 +236,7 @@ begin
     if new.title is distinct from old.title
       or new.description is distinct from old.description
       or new.due_date is distinct from old.due_date
+      or new.due_time is distinct from old.due_time
       or new.priority is distinct from old.priority
       or new.assigned_to is distinct from old.assigned_to then
       raise exception 'Detail tugas hanya dapat diubah manager';
@@ -287,6 +289,25 @@ create table public.task_attachments (
 create index task_attachments_task_idx on public.task_attachments (task_id, created_at);
 create index if not exists task_attachments_uploaded_by_idx on public.task_attachments (uploaded_by);
 alter table public.task_attachments enable row level security;
+
+create table public.content_assets (
+  id uuid primary key default gen_random_uuid(),
+  title text not null check (char_length(trim(title)) between 1 and 160),
+  caption text not null default '' check (char_length(caption) <= 5000),
+  scheduled_date date,
+  scheduled_time time without time zone,
+  path text not null unique,
+  file_name text not null check (char_length(file_name) between 1 and 255),
+  content_type text not null default 'application/octet-stream',
+  size_bytes bigint not null check (size_bytes > 0 and size_bytes <= 52428800),
+  uploaded_by uuid not null references public.profiles(id),
+  created_at timestamptz not null default now(),
+  constraint content_assets_owner_path_check
+    check (path like ('content/' || uploaded_by::text || '/%'))
+);
+create index content_assets_scheduled_idx on public.content_assets (scheduled_date, scheduled_time);
+create index content_assets_created_idx on public.content_assets (created_at desc);
+alter table public.content_assets enable row level security;
 
 create table public.activity_log (
   id uuid primary key default gen_random_uuid(),
@@ -359,15 +380,16 @@ for each row execute function public.log_related_activity();
 
 -- Least-privilege Data API grants. There is intentionally no client-side delete access to tasks or comments.
 grant usage on schema public to authenticated;
-revoke all on public.profiles, public.tasks, public.task_comments, public.task_attachments, public.activity_log from anon, authenticated;
+revoke all on public.profiles, public.tasks, public.task_comments, public.task_attachments, public.content_assets, public.activity_log from anon, authenticated;
 grant select (id, display_name, role, created_at) on public.profiles to authenticated;
 grant select on public.tasks to authenticated;
-grant insert (id, title, description, due_date, priority, status, created_by, assigned_to, created_at) on public.tasks to authenticated;
-grant update (title, description, due_date, priority, status, assigned_to) on public.tasks to authenticated;
+grant insert (id, title, description, due_date, due_time, priority, status, created_by, assigned_to, created_at) on public.tasks to authenticated;
+grant update (title, description, due_date, due_time, priority, status, assigned_to) on public.tasks to authenticated;
 grant select on public.task_comments to authenticated;
 grant insert (id, task_id, user_id, comment, created_at) on public.task_comments to authenticated;
 grant select on public.task_attachments to authenticated;
 grant insert (id, task_id, path, file_name, content_type, size_bytes, uploaded_by, created_at) on public.task_attachments to authenticated;
+grant select, insert, update, delete on public.content_assets to authenticated;
 grant select on public.activity_log to authenticated;
 grant insert (id, task_id, actor_id, action, details, created_at) on public.activity_log to authenticated;
 
@@ -449,6 +471,36 @@ with check (
   )
 );
 
+drop policy if exists content_assets_read_team on public.content_assets;
+create policy content_assets_read_team
+on public.content_assets for select to authenticated
+using (public.is_team_member());
+
+drop policy if exists content_assets_insert_team on public.content_assets;
+create policy content_assets_insert_team
+on public.content_assets for insert to authenticated
+with check (
+  public.is_team_member()
+  and uploaded_by = (select auth.uid())
+  and size_bytes > 0 and size_bytes <= 52428800
+  and path like ('content/' || (select auth.uid())::text || '/%')
+);
+
+drop policy if exists content_assets_update_team on public.content_assets;
+create policy content_assets_update_team
+on public.content_assets for update to authenticated
+using (public.is_team_member())
+with check (
+  public.is_team_member()
+  and uploaded_by = (select auth.uid())
+  and path like ('content/' || (select auth.uid())::text || '/%')
+);
+
+drop policy if exists content_assets_delete_team on public.content_assets;
+create policy content_assets_delete_team
+on public.content_assets for delete to authenticated
+using (public.is_team_member());
+
 drop policy if exists team_can_read_activity on public.activity_log;
 create policy team_can_read_activity on public.activity_log
 for select to authenticated using (public.is_team_member());
@@ -506,4 +558,35 @@ using (
   and exists (
     select 1 from public.tasks t where t.id::text = split_part(name, '/', 1)
   )
+);
+
+drop policy if exists ruang_kerja_content_storage_select on storage.objects;
+create policy ruang_kerja_content_storage_select
+on storage.objects for select to authenticated
+using (
+  bucket_id = 'ruang-kerja-files'
+  and name like 'content/%'
+  and public.is_team_member()
+  and exists (
+    select 1 from public.content_assets c
+    where c.path = storage.objects.name
+  )
+);
+
+drop policy if exists ruang_kerja_content_storage_insert on storage.objects;
+create policy ruang_kerja_content_storage_insert
+on storage.objects for insert to authenticated
+with check (
+  bucket_id = 'ruang-kerja-files'
+  and name like ('content/' || (select auth.uid())::text || '/%')
+  and public.is_team_member()
+);
+
+drop policy if exists ruang_kerja_content_storage_delete on storage.objects;
+create policy ruang_kerja_content_storage_delete
+on storage.objects for delete to authenticated
+using (
+  bucket_id = 'ruang-kerja-files'
+  and name like 'content/%'
+  and public.is_team_member()
 );
