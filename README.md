@@ -76,6 +76,8 @@ Gunakan akun dummy dan file non-rahasia. Pastikan:
 
 Edge Function `google-drive-storage` sudah dipasang di Supabase. Google Drive perlu diotorisasi satu kali dan OAuth secrets perlu disimpan sebelum upload baru berfungsi.
 
+Sebelum mencoba menghubungkan Google, publikasikan UI terbaru sekali: buka [workflow Deploy Ruang Kerja to GitHub Pages](https://github.com/reybyoo-maker/WEBSITE-PERSONAL/actions/workflows/deploy-pages.yml), pilih **Run workflow** dengan branch `main`, lalu tunggu sampai sukses. Ini memastikan tombol **Hubungkan Google Drive** sudah tampil di website.
+
 ### A. Siapkan Google Cloud dan OAuth
 
 1. Buka [Google Cloud Console](https://console.cloud.google.com/) dan buat atau pilih project.
