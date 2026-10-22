@@ -344,8 +344,8 @@ async function loadWorkspace() {
     supabase.from("profiles").select("id,display_name,role,access_label,access_color,created_at").order("display_name"),
     supabase.from("tasks").select("*").order("created_at", { ascending: false }),
     supabase.from("task_comments").select("id,task_id,user_id,comment,created_at").order("created_at", { ascending: true }),
-    supabase.from("task_attachments").select("id,task_id,path,storage_parts,file_name,content_type,size_bytes,uploaded_by,created_at,attachment_type").order("created_at", { ascending: false }),
-    supabase.from("content_assets").select("id,title,caption,scheduled_date,scheduled_time,path,storage_parts,file_name,content_type,size_bytes,uploaded_by,created_at,content_group_id,status,revision_note,content_format").order("created_at", { ascending: false }),
+    supabase.from("task_attachments").select("id,task_id,path,storage_parts,storage_provider,storage_uploaded_at,file_name,content_type,size_bytes,uploaded_by,created_at,attachment_type").order("created_at", { ascending: false }),
+    supabase.from("content_assets").select("id,title,caption,scheduled_date,scheduled_time,path,storage_parts,storage_provider,storage_uploaded_at,file_name,content_type,size_bytes,uploaded_by,created_at,content_group_id,status,revision_note,content_format").order("created_at", { ascending: false }),
     supabase.from("activity_log").select("id,task_id,actor_id,action,details,created_at").order("created_at", { ascending: false }).limit(100),
     supabase.from("visit_schedules").select("*").order("visit_date", { ascending: true }).order("start_time", { ascending: true })
   ]);
@@ -365,6 +365,7 @@ async function loadWorkspace() {
   state.comments = commentsRes.data || [];
   state.attachments = attachmentsRes.data || [];
   state.contentAssets = contentRes.data || [];
+  await cleanupExpiredFiles();
   state.activities = activityRes.data || [];
   state.visitSchedules = visitsRes.data || [];
   state.loading = false;
@@ -567,6 +568,25 @@ async function notifyTelegram(eventType, title, status, details = "") {
 function safeFilename(name) {
   return String(name || "file").normalize("NFKC").replace(/[^a-zA-Z0-9._-]+/g, "_").replace(/^[.]+/, "").slice(0, 100) || "file";
 }
+async function invokeBackblaze(action, payload = {}) {
+  if (!supabase) throw new Error("Supabase belum siap.");
+  const { data, error } = await supabase.functions.invoke("b2-storage", {
+    body: { action, ...payload }
+  });
+  if (error) {
+    let message = error.message || "Permintaan Backblaze gagal.";
+    try {
+      if (error.context && typeof error.context.clone === "function") {
+        const body = await error.context.clone().json();
+        if (body && body.error) message = body.error;
+      }
+    } catch { /* keep the SDK's error message */ }
+    throw new Error(message);
+  }
+  if (data && data.error) throw new Error(String(data.error));
+  return data || {};
+}
+
 async function uploadPrivateFile(taskId, file, onPart = () => {}) {
   if (!file || file.size < 1) throw new Error("File kosong.");
   if (file.size > MAX_STORAGE_FILE_SIZE) throw new Error("File " + file.name + " melebihi batas aplikasi 800 MiB.");
@@ -581,34 +601,79 @@ async function uploadPrivateFile(taskId, file, onPart = () => {}) {
       const start = part * STORAGE_CHUNK_SIZE;
       const end = Math.min(start + STORAGE_CHUNK_SIZE, file.size);
       const partPath = rootPath + "/part-" + String(part + 1).padStart(4, "0");
-      const { error } = await supabase.storage.from(STORAGE_BUCKET).upload(partPath, file.slice(start, end), {
-        cacheControl: "0", contentType: file.type || "application/octet-stream", upsert: false
+      const contentType = file.type || "application/octet-stream";
+      const signed = await invokeBackblaze("presign-upload", { key: partPath, contentType });
+      const response = await fetch(signed.url, {
+        method: "PUT",
+        headers: { "Content-Type": contentType },
+        body: file.slice(start, end)
       });
-      if (error) throw error;
+      if (!response.ok) throw new Error("Backblaze menolak bagian " + (part + 1) + " (HTTP " + response.status + "). Periksa CORS dan konfigurasi bucket.");
       paths.push(partPath);
       onPart(part + 1, totalParts);
     }
-    return { path: rootPath, storage_parts: paths, size: file.size };
+    return { path: rootPath, storage_parts: paths, size: file.size, storage_provider: "backblaze" };
   } catch (error) {
-    if (paths.length) await removeStorageObjects(paths).catch(() => {});
+    if (paths.length) await removeStorageObjects(paths, "backblaze").catch(() => {});
     throw error;
   }
 }
-async function removeStorageObjects(paths) {
+async function removeStorageObjects(paths, provider = "supabase") {
   const uniquePaths = [...new Set((paths || []).filter((path) => typeof path === "string" && path))];
   for (let start = 0; start < uniquePaths.length; start += 100) {
-    const { error } = await supabase.storage.from(STORAGE_BUCKET).remove(uniquePaths.slice(start, start + 100));
-    if (error) throw error;
+    const batch = uniquePaths.slice(start, start + 100);
+    if (provider === "backblaze") {
+      await invokeBackblaze("delete-objects", { keys: batch });
+    } else {
+      const { error } = await supabase.storage.from(STORAGE_BUCKET).remove(batch);
+      if (error) throw error;
+    }
   }
+}
+
+async function cleanupExpiredFiles() {
+  const retentionMs = 14 * 24 * 60 * 60 * 1000;
+  const cutoff = Date.now() - retentionMs;
+  const oldFiles = [
+    ...state.attachments.map((item) => ({ ...item, _table: "task_attachments" })),
+    ...state.contentAssets.map((item) => ({ ...item, _table: "content_assets" }))
+  ].filter((item) => {
+    const uploadedAt = Date.parse(item.storage_uploaded_at || item.created_at || "");
+    return Number.isFinite(uploadedAt) && uploadedAt <= cutoff;
+  });
+  let removed = 0;
+  for (const item of oldFiles) {
+    try {
+      await removeStorageObjects(getStoredPaths(item), item.storage_provider || "supabase");
+      const { error } = await supabase.from(item._table).delete().eq("id", item.id);
+      if (error) throw error;
+      if (item._table === "task_attachments") {
+        state.attachments = state.attachments.filter((row) => row.id !== item.id);
+      } else {
+        state.contentAssets = state.contentAssets.filter((row) => row.id !== item.id);
+      }
+      removed++;
+    } catch (error) {
+      console.warn("Retensi 14 hari belum bisa membersihkan file:", item.file_name, error);
+    }
+  }
+  if (removed) toast(removed + " file yang sudah melewati retensi 14 hari dihapus.");
 }
 async function downloadStoredFile(item, returnBlob = false) {
   const paths = getStoredPaths(item);
   if (!paths.length) throw new Error("Bagian file tidak ditemukan.");
   const pieces = [];
   for (let index = 0; index < paths.length; index++) {
-    const { data, error } = await supabase.storage.from(STORAGE_BUCKET).download(paths[index]);
-    if (error) throw error;
-    pieces.push(data);
+    if (item.storage_provider === "backblaze") {
+      const signed = await invokeBackblaze("presign-download", { key: paths[index] });
+      const response = await fetch(signed.url);
+      if (!response.ok) throw new Error("Backblaze gagal mengirim bagian " + (index + 1) + " (HTTP " + response.status + ").");
+      pieces.push(await response.blob());
+    } else {
+      const { data, error } = await supabase.storage.from(STORAGE_BUCKET).download(paths[index]);
+      if (error) throw error;
+      pieces.push(data);
+    }
     if (paths.length > 1 && !returnBlob) toast("Mengunduh bagian " + (index + 1) + " dari " + paths.length + "…");
   }
   const blob = new Blob(pieces, { type: item.content_type || "application/octet-stream" });
@@ -638,7 +703,7 @@ async function uploadTaskFile(form) {
       uploaded.push({ ...saved, ...entry });
     }
     const rows = uploaded.map(({ path, storage_parts, file, attachment_type }) => ({
-      task_id: task.id, path, storage_parts, file_name: file.name.slice(0, 255),
+      task_id: task.id, path, storage_parts, storage_provider: "backblaze", file_name: file.name.slice(0, 255),
       content_type: file.type || "application/octet-stream", size_bytes: file.size,
       uploaded_by: state.user.id, attachment_type
     }));
@@ -649,7 +714,7 @@ async function uploadTaskFile(form) {
     await refreshTaskDetail(task.id);
   } catch (error) {
     const uploadedPaths = uploaded.flatMap((item) => item.storage_parts || [item.path]);
-    if (uploadedPaths.length) await removeStorageObjects(uploadedPaths).catch(() => {});
+    if (uploadedPaths.length) await removeStorageObjects(uploadedPaths, "backblaze").catch(() => {});
     button.disabled = false;
     button.textContent = "Unggah lampiran terpilih";
     toast("Upload belum selesai: " + (error.message || "periksa koneksi dan kapasitas penyimpanan"), "error");
@@ -667,7 +732,7 @@ async function deleteTaskAttachment(attachmentId) {
   const file = state.attachments.find((item) => item.id === attachmentId);
   if (!file) return toast("Lampiran tidak ditemukan.", "error");
   if (!window.confirm('Hapus file "' + file.file_name + '" dari semua pengguna?')) return;
-  try { await removeStorageObjects(getStoredPaths(file)); }
+  try { await removeStorageObjects(getStoredPaths(file), file.storage_provider || "supabase"); }
   catch (error) { return toast("File belum dapat dihapus: " + (error.message || ""), "error"); }
   const { error } = await supabase.from("task_attachments").delete().eq("id", attachmentId);
   if (error) return toast("File terhapus dari storage, tetapi catatan belum terhapus: " + error.message, "error");
@@ -681,8 +746,9 @@ async function deleteTask(taskId) {
   if (!task) return toast("Tugas tidak ditemukan.", "error");
   const files = state.attachments.filter((item) => item.task_id === taskId);
   if (!window.confirm('Hapus tugas "' + task.title + '" beserta ' + files.length + ' catatan lampiran? Penghapusan berlaku untuk kedua kode login dan tidak dapat dibatalkan.')) return;
-  try { await removeStorageObjects(files.flatMap((file) => getStoredPaths(file))); }
-  catch (error) { return toast("Tugas belum dihapus karena file gagal dibersihkan: " + (error.message || ""), "error"); }
+  try {
+    for (const file of files) await removeStorageObjects(getStoredPaths(file), file.storage_provider || "supabase");
+  } catch (error) { return toast("Tugas belum dihapus karena file gagal dibersihkan: " + (error.message || ""), "error"); }
   const { error } = await supabase.from("tasks").delete().eq("id", taskId);
   if (error) return toast("Tugas belum dapat dihapus: " + error.message, "error");
   $("#modal-root").innerHTML = "";
@@ -718,7 +784,7 @@ async function uploadContent(form) {
     const rows = uploaded.map(({ path, storage_parts, file }) => ({
       content_group_id: groupId, title, caption, scheduled_date: scheduledDate,
       scheduled_time: scheduledTime, content_format: contentFormat, status: "todo", revision_note: "",
-      path, storage_parts, file_name: file.name.slice(0, 255), content_type: file.type || "application/octet-stream",
+      path, storage_parts, storage_provider: "backblaze", file_name: file.name.slice(0, 255), content_type: file.type || "application/octet-stream",
       size_bytes: file.size, uploaded_by: state.user.id
     }));
     const { error: metadataError } = await supabase.from("content_assets").insert(rows);
@@ -731,7 +797,7 @@ async function uploadContent(form) {
     state.view = "content";
     await loadWorkspace();
   } catch (error) {
-    if (uploaded.length) await removeStorageObjects(uploaded.flatMap((x) => x.storage_parts || [x.path])).catch(() => {});
+    if (uploaded.length) await removeStorageObjects(uploaded.flatMap((x) => x.storage_parts || [x.path]), "backblaze").catch(() => {});
     button.disabled = false;
     button.textContent = "＋ Upload content";
     toast("Content belum tersimpan: " + (error.message || "periksa koneksi dan kapasitas penyimpanan"), "error");
@@ -749,8 +815,9 @@ async function deleteContent(contentGroupId) {
   const group = groupContentAssets().find((asset) => asset.content_group_id === contentGroupId);
   if (!group) return toast("Content tidak ditemukan.", "error");
   if (!window.confirm("Hapus content “" + group.title + "” beserta " + group.files.length + " file untuk semua pengguna?")) return;
-  try { await removeStorageObjects(group.files.flatMap((file) => getStoredPaths(file))); }
-  catch (error) { return toast("File belum dapat dihapus: " + (error.message || ""), "error"); }
+  try {
+    for (const file of group.files) await removeStorageObjects(getStoredPaths(file), file.storage_provider || "supabase");
+  } catch (error) { return toast("File belum dapat dihapus: " + (error.message || ""), "error"); }
   const { error } = await supabase.from("content_assets").delete().eq("content_group_id", contentGroupId);
   if (error) return toast("File terhapus, tetapi data content belum terhapus: " + error.message, "error");
   toast("Content dan semua lampirannya berhasil dihapus.");
@@ -1032,7 +1099,7 @@ async function restoreEncryptedBackup(file) {
       const uploaded = await uploadPrivateFile(item.task_id, restoredFile);
       if (attachmentPaths.has(uploaded.path)) continue;
       missingMetadata.push({
-        id: item.id, task_id: item.task_id, path: uploaded.path, storage_parts: uploaded.storage_parts,
+        id: item.id, task_id: item.task_id, path: uploaded.path, storage_parts: uploaded.storage_parts, storage_provider: "backblaze",
         file_name: item.file_name, content_type: item.content_type || "application/octet-stream",
         size_bytes: restoredFile.size, uploaded_by: state.user.id, created_at: item.created_at,
         attachment_type: item.attachment_type || "work"
@@ -1058,7 +1125,7 @@ async function restoreEncryptedBackup(file) {
         caption: item.caption || "", scheduled_date: item.scheduled_date || null,
         scheduled_time: item.scheduled_time || null, content_format: item.content_format || "feed",
         status: item.status || "todo", revision_note: item.revision_note || "",
-        path: uploaded.path, storage_parts: uploaded.storage_parts, file_name: item.file_name,
+        path: uploaded.path, storage_parts: uploaded.storage_parts, storage_provider: "backblaze", file_name: item.file_name,
         content_type: item.content_type || "application/octet-stream", size_bytes: restoredFile.size,
         uploaded_by: state.user.id, created_at: item.created_at
       });
