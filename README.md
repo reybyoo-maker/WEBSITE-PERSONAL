@@ -1,37 +1,37 @@
 # RUANG KERJA — portal pekerjaan pribadi
 
-Portal responsif untuk koordinasi tim: tugas dan deadline, approval/revisi, lampiran pekerjaan, panel Content, schedule visit offline, backup terenkripsi, notifikasi Telegram, penyimpanan file privat Backblaze B2 untuk upload baru, serta retensi file 14 hari.
+Portal responsif untuk koordinasi tim: tugas dan deadline, approval/revisi, lampiran pekerjaan, panel Content, schedule visit offline, backup terenkripsi, notifikasi Telegram, integrasi Google Drive privat, serta penghapusan file otomatis setelah 14 hari.
 
 ## Status project
 
 - Project Supabase `ruang-kerja-rey` sudah dibuat.
 - Database, aturan akses, dan bucket privat Supabase `ruang-kerja-files` untuk file lama tetap tersedia.
-- Edge Function `b2-storage` sudah di-deploy. Upload baru memakai Backblaze B2 setelah bucket dan lima secret B2 dikonfigurasi; sebelum itu portal sementara memakai Supabase agar upload tidak langsung rusak.
-- `config.js` sudah diisi Project URL dan public publishable key.
+- Edge Function `google-drive-storage` sudah aktif; koneksi Google OAuth perlu disiapkan sebelum upload baru berfungsi.
+- Workflow GitHub Actions `Google Drive 14-day retention` sudah dibuat untuk menjalankan pembersihan setiap hari setelah token penjadwal dikonfigurasi.
 - Website sudah live melalui GitHub Pages: https://reybyoo-maker.github.io/WEBSITE-PERSONAL/.
 
 ## Privasi dan keamanan
 
-- File baru disimpan di **private Backblaze B2 bucket** dan transfer memakai URL bertanda tangan yang berumur 15 menit. Kunci B2 berada di Supabase Edge Function Secrets, tidak dikirim ke browser.
-- Metadata tetap berada di Supabase dan dilindungi oleh RLS. File lama tetap menggunakan private Supabase Storage sampai retensinya lewat.
-- Saat file/folder (tugas atau grup Content) dihapus manual, backend menghapus seluruh versi objek B2 supaya kapasitasnya benar-benar dapat dipakai kembali.
-- Jangan commit file kerja, password, kode undangan, API key rahasia, atau backup ke GitHub.
-- Hosting gratis GitHub Pages di akun GitHub Free mengharuskan repository ini **Public**, sehingga source code dapat dilihat siapa saja. Jangan simpan dokumen kerja, password, kode undangan mentah, API secret, atau backup di repository. Konten file hanya dapat diakses melalui storage privat dan URL bertanda tangan setelah otorisasi sesi.
-- Jangan menyimpan dokumen rahasia negara/berklasifikasi atau dokumen yang dibatasi kebijakan instansi di layanan cloud umum tanpa persetujuan resmi. Sistem ini tidak tersertifikasi untuk penyimpanan dokumen berklasifikasi.
+- File baru disimpan di folder **Ruang Kerja Rey** di Google Drive yang terhubung melalui OAuth. Refresh token disimpan di backend Supabase, bukan di browser atau GitHub.
+- Metadata file tersimpan di Supabase dan dilindungi oleh RLS. File lama yang sebelumnya ada di Supabase Storage tetap dapat dibaca hingga retensi habis.
+- Ketika file atau grup Content dihapus manual, backend menghapus file Google Drive secara permanen, bukan memindahkannya ke Sampah, sehingga kapasitas dapat digunakan kembali.
+- Jangan commit file kerja, password, kode undangan, OAuth Client Secret, token cleanup, atau backup ke GitHub.
+- Hosting gratis GitHub Pages mengharuskan repository ini **Public**, sehingga source code dapat dilihat siapa saja. Rahasia hanya boleh disimpan dalam Supabase Edge Function Secrets atau GitHub Actions Secrets.
+- Jangan menyimpan dokumen rahasia/berklasifikasi atau dokumen yang dilarang kebijakan instansi di layanan cloud umum tanpa persetujuan resmi.
 
-## Batas file paket gratis
+## Kapasitas dan retensi file
 
-Portal memecah file menjadi potongan masing-masing 20 MiB sehingga batas aplikasi adalah **800 MiB per file**. Potongan disatukan kembali ketika diunduh. Backblaze B2 menyediakan jatah gratis terbatas; kuota, biaya penyimpanan, dan transfer terbaru mengikuti akun serta halaman harga provider. **Tidak ada storage gratis tanpa batas.** File yang sudah dihapus permanen membebaskan kapasitas, tetapi objek yang sudah kedaluwarsa otomatis dapat memerlukan 1–2 hari tambahan untuk dihapus permanen oleh proses lifecycle B2. Pastikan lifecycle, kapasitas, dan biaya diperiksa berkala.
+Portal memecah file menjadi potongan masing-masing 20 MiB sehingga batas aplikasi adalah **800 MiB per file**. Saat diunduh, potongan disatukan kembali. Penyimpanan Google Drive gratis **15 GB per akun**, dibagi bersama Gmail dan Google Photos; kuota akun dan batas Google Drive API tetap berlaku. Tidak ada storage gratis tanpa batas.
 
-Jika secret B2 belum disetel, portal memakai Supabase Storage sementara. File transisi itu tidak memakai kuota B2, dan akan dihapus oleh cleanup portal setelah 14 hari sejak kolom retensi diaktifkan. Jangan mengunggah dokumen rahasia/berklasifikasi atau file yang tidak diizinkan oleh kebijakan instansi.
+File yang mencapai usia 14 hari dihapus oleh job harian, sehingga waktunya dapat sedikit lewat dari tepat hari ke-14. Penghapusan manual memakai Drive API agar file tidak sekadar masuk Sampah. Pastikan file yang masih diperlukan sudah diunduh atau dibuat backup terpisah sebelum retensi habis.
 
-Dokumentasi: [Backblaze S3-Compatible API](https://www.backblaze.com/docs/cloud-storage-s3-compatible-api) · [Lifecycle Rules](https://www.backblaze.com/docs/en/cloud-storage-lifecycle-rules) · [CORS Rules](https://www.backblaze.com/docs/cloud-storage-cross-origin-resource-sharing-rules)
+Dokumentasi: [Google Drive resumable upload](https://developers.google.com/workspace/drive/api/guides/manage-uploads) · [Drive API scopes](https://developers.google.com/workspace/drive/api/guides/api-specific-auth) · [Permanent delete](https://developers.google.com/workspace/drive/api/guides/delete)
 
 ## Jalankan website
 
 ### 1. Supabase (project ini sudah dikonfigurasi)
 
-Database dan aturan akses sudah dibuat melalui migrasi. Bucket privat `ruang-kerja-files` digunakan untuk file lama. **Jangan jalankan ulang `supabase/schema.sql` di project yang sudah aktif ini**, karena file tersebut untuk instalasi baru. Project ini menggunakan `https://edgzffkhjtzejxjbtqib.supabase.co`; jangan pernah menaruh service-role/secret key atau kredensial Backblaze ke browser.
+Database dan aturan akses sudah dibuat melalui migrasi. Bucket privat `ruang-kerja-files` digunakan untuk file lama. **Jangan jalankan ulang `supabase/schema.sql` di project yang sudah aktif ini**, karena file tersebut untuk instalasi baru. Project ini menggunakan `https://edgzffkhjtzejxjbtqib.supabase.co`; jangan pernah menaruh service-role/secret key atau kredensial Google Drive ke browser.
 
 Pastikan Authentication → Providers → **Anonymous Sign-Ins** aktif karena portal memakai kode akses tanpa email/password. Email provider tidak diperlukan untuk login portal ini. URL website tetap dapat dimasukkan pada Authentication → URL Configuration → Site URL.
 
@@ -45,7 +45,7 @@ Workflow `.github/workflows/deploy-pages.yml` akan build website dan deploy hasi
 4. URL project yang diharapkan: `https://reybyoo-maker.github.io/WEBSITE-PERSONAL/`.
 5. Di Supabase → Authentication → URL Configuration, atur **Site URL** ke URL di atas, dan tambahkan URL yang sama di **Redirect URLs**.
 
-GitHub Pages gratis untuk repository publik dan tidak membutuhkan kartu/billing untuk hosting standar. Source code terlihat publik, jadi jangan commit file kerja atau secret. Backblaze B2 adalah storage terpisah; kredensialnya harus disimpan sebagai Supabase Edge Function Secrets.
+GitHub Pages gratis untuk repository publik dan tidak membutuhkan kartu/billing untuk hosting standar. Source code terlihat publik, jadi jangan commit file kerja atau secret. Google Drive adalah storage terpisah; kredensialnya harus disimpan sebagai Supabase Edge Function Secrets.
 
 ### 3. Login kode permanen (tanpa email)
 
@@ -62,8 +62,8 @@ Gunakan akun dummy dan file non-rahasia. Pastikan:
 - klik Sudah beres pada tugas atau content membuatnya muncul di panel Approval & revisi;
 - keputusan Approval mengubah status item menjadi Done, sedangkan Revisi menyimpan deskripsi perubahan;
 - tugas menerima beberapa file pekerjaan dan file contoh opsional; pilih file satu per satu, lalu kolom berikutnya muncul otomatis;
-- lampiran besar dipecah menjadi bagian privat 20 MiB dan dapat diunduh kembali; setelah secret B2 disetel, metadata file baru harus menunjukkan `storage_provider = backblaze`;
-- tombol Hapus membebaskan kapasitas B2 dengan menghapus semua versi objek, bukan hanya delete marker;
+- lampiran besar dipecah menjadi bagian privat 20 MiB dan dapat diunduh kembali; setelah secret Google Drive disetel, metadata file baru harus menunjukkan `storage_provider = google_drive`;
+- tombol Hapus membebaskan kapasitas Google Drive dengan menghapus semua versi objek, bukan hanya delete marker;
 - panel Content mendukung beberapa lampiran, Copy caption, pilihan Reels/Feed/Carousel, tanggal/jam, dan approval;
 - Kode 1 tampil merah dan Kode 2 tampil pink; keduanya bisa melihat, mengedit, menghapus tugas dan schedule yang sama;
 - panel Visit offline bisa membuat, mengedit, menghapus, dan mengganti status Fix / Masih rencana / Batal;
@@ -72,23 +72,48 @@ Gunakan akun dummy dan file non-rahasia. Pastikan:
 - orang tanpa sesi yang sah tidak dapat membaca atau mengunduh file;
 - backup terenkripsi dapat dibuat dan dipulihkan.
 
-## Aktifkan Backblaze B2 (wajib untuk storage baru)
+## Aktifkan Google Drive (wajib untuk upload baru)
 
-Edge Function `b2-storage` sudah aktif di project Supabase, tetapi **upload baru belum memakai B2 sampai kamu membuat bucket dan mengisi secrets berikut**. Sementara konfigurasi belum lengkap, portal akan menaruh upload baru di Supabase Storage dan menampilkan peringatan.
+Edge Function `google-drive-storage` sudah dipasang di Supabase. Google Drive perlu diotorisasi satu kali dan OAuth secrets perlu disimpan sebelum upload baru berfungsi.
 
-1. Buka [Backblaze B2 Cloud Storage](https://www.backblaze.com/cloud-storage), aktifkan B2, lalu buat satu bucket dengan akses **Private**. Nama bucket harus unik, misalnya `ruang-kerja-rey-<angka-acak>`. Catat bucket name, region, dan endpoint S3 yang biasanya berbentuk `https://s3.<region>.backblazeb2.com`.
-2. Di **Application Keys**, buat key baru yang dibatasi ke bucket tersebut. Aktifkan kemampuan **listFiles, readFiles, writeFiles, dan deleteFiles**. Jangan gunakan master application key. Salin Key ID dan Application Key saat dibuat; rahasianya biasanya hanya ditampilkan saat pembuatan.
-3. Di Supabase Dashboard project `ruang-kerja-rey`, buka **Edge Functions → Secrets** dan tambahkan:
-   - `B2_ENDPOINT` — contoh format: `https://s3.us-west-004.backblazeb2.com` (gunakan region milik bucketmu).
-   - `B2_REGION` — hanya nama region, misalnya `us-west-004`.
-   - `B2_BUCKET_NAME` — nama bucket yang kamu buat.
-   - `B2_KEY_ID` — Key ID dari Application Key.
-   - `B2_APPLICATION_KEY` — Application Key rahasia.
-4. Di bucket Backblaze, tambahkan aturan **CORS untuk S3-compatible API**. Izinkan origin tepat `https://reybyoo-maker.github.io`, metode `GET`, `PUT`, dan `HEAD`, header `*`, dan expose header `ETag`. CORS diperlukan karena browser upload/download langsung ke URL bertanda tangan. Lihat [panduan resmi CORS S3](https://www.backblaze.com/docs/cloud-storage-enable-cors-with-the-s3-compatible-api). Jika console akunmu tidak menyediakan pengaturan CORS, gunakan S3 API `PutBucketCors` dari tool/CLI tepercaya; untuk menulis CORS diperlukan izin konfigurasi bucket yang lebih luas, jadi jangan simpan key konfigurasi itu di website.
-5. Di **Buckets → bucket kamu → Lifecycle Settings**, pilih **Use custom lifecycle rules**, biarkan File Path kosong agar berlaku untuk seluruh object, atur `daysFromUploadingToHiding = 14` dan `daysFromHidingToDeleting = 1`, lalu simpan. Ini membuat objek disembunyikan setelah 14 hari dan versi fisiknya dihapus setelah aturan lifecycle berjalan. Karena lifecycle diproses berkala, penghapusan permanen aktual dapat terjadi sekitar hari ke-15 hingga ke-17. Dokumentasi: [Lifecycle Rules Backblaze](https://www.backblaze.com/docs/en/cloud-storage-lifecycle-rules).
-6. Buka portal, login, upload satu file uji yang tidak penting, download, lalu hapus. Jika masih muncul peringatan bahwa B2 belum dikonfigurasi, periksa nama secret dan endpoint/region. Jangan kirimkan nilai secret ke chat atau commit ke GitHub.
+### A. Siapkan Google Cloud dan OAuth
 
-**Penghapusan manual:** fungsi menghapus semua versi objek B2 yang diketahui untuk file yang dihapus. **Retensi otomatis:** aturan lifecycle bucket mengurus file yang mencapai umur 14 hari walaupun portal tidak sedang dibuka. Metadata lama dibersihkan oleh portal saat dibuka setelah melewati retensi.
+1. Buka [Google Cloud Console](https://console.cloud.google.com/) dan buat atau pilih project.
+2. Di **APIs & Services → Library**, cari dan aktifkan **Google Drive API**.
+3. Di **Google Auth Platform / OAuth consent screen**, lengkapi nama aplikasi dan email dukungan. Jika status masih **Testing**, tambahkan akun Google kamu sebagai **Test user**.
+4. Buka **Clients → Create client → Web application**. Tambahkan Authorized redirect URI ini persis:
+   `https://edgzffkhjtzejxjbtqib.supabase.co/functions/v1/google-drive-storage`
+5. Salin **Client ID** dan **Client Secret**.
+
+Scope yang diminta adalah `https://www.googleapis.com/auth/drive.file`, yang membatasi akses ke file yang dibuat atau dibuka oleh aplikasi ini. Google mengelompokkan scope tersebut sebagai non-sensitive dan merekomendasikannya untuk akses yang lebih sempit. Jika aplikasi External tetap berstatus Testing, refresh token biasanya kedaluwarsa setelah 7 hari; untuk penggunaan jangka panjang ubah Publishing status ke **In production** dan ikuti proses yang diminta Google. Referensi: [OAuth web server flow](https://developers.google.com/identity/protocols/oauth2/web-server) dan [aturan refresh token](https://developers.google.com/identity/protocols/oauth2/).
+
+### B. Simpan tiga secrets di Supabase
+
+Buka [Supabase Edge Function Secrets](https://supabase.com/dashboard/project/edgzffkhjtzejxjbtqib/functions/secrets), lalu tambahkan:
+
+- `GOOGLE_CLIENT_ID` — Client ID dari Google Cloud.
+- `GOOGLE_CLIENT_SECRET` — Client Secret (rahasia).
+- `GOOGLE_REDIRECT_URI` — nilai persis `https://edgzffkhjtzejxjbtqib.supabase.co/functions/v1/google-drive-storage`.
+
+Jangan memasukkan Client Secret ke `app.js`, `config.js`, atau repository GitHub.
+
+### C. Hubungkan akun Google
+
+1. Buka [Ruang Kerja Rey](https://reybyoo-maker.github.io/WEBSITE-PERSONAL/) dan login dengan kode akses.
+2. Buka menu **Arsip & file**, lalu tekan **Hubungkan Google Drive**.
+3. Pilih akun Google yang akan menjadi pemilik file, lalu izinkan akses.
+4. Setelah kembali ke portal, refresh halaman dan pastikan status **Google Drive terhubung**.
+5. Tes dengan file non-penting: upload, download, lalu hapus. File baru akan ada di folder **Ruang Kerja Rey** pada Google Drive.
+
+### D. Aktifkan penghapusan otomatis 14 hari
+
+Workflow `.github/workflows/google-drive-retention.yml` menjalankan pembersihan harian. Job menghapus permanen file yang sudah berusia minimal 14 hari dan membersihkan metadata Supabase.
+
+1. Buat token acak panjang untuk melindungi endpoint cleanup.
+2. Simpan nilai token yang sama sebagai secret bernama `GDRIVE_CLEANUP_TOKEN` pada **Supabase Edge Function Secrets** dan **GitHub repository → Settings → Secrets and variables → Actions → New repository secret**.
+3. Buka tab **Actions** pada GitHub, jalankan workflow **Google Drive 14-day retention** melalui **Run workflow**, dan pastikan job selesai sukses dengan `"ok": true`. Setelah itu job akan berjalan harian.
+
+Jangan kirim token cleanup di chat atau taruh di file source. Kalau token tidak ada atau berbeda antara GitHub dan Supabase, job tidak dapat membersihkan file otomatis.
 
 ## Notifikasi Telegram
 
@@ -116,7 +141,7 @@ Menu Arsip & File menyediakan backup terenkripsi browser `.rkbak`. Saat ini back
 - `config.js`: Supabase URL dan public publishable key.
 - `supabase/schema.sql`: schema untuk instalasi baru, tabel, RLS, bucket privat legacy.
 - `supabase/migrations/`: migrasi perubahan database, termasuk akses dua kode, retensi 14 hari, storage provider, dan schedule visit offline.
-- `supabase/functions/b2-storage/index.ts`: backend privat untuk URL upload/download sementara dan penghapusan permanen versi objek B2.
+- `supabase/functions/b2-storage/index.ts`: backend privat untuk URL upload/download sementara dan penghapusan permanen versi objek Google Drive.
 - `supabase/functions/notify-telegram/index.ts`: notifikasi Telegram.
 - `scripts/build.mjs`: hanya menyalin aset website ke `dist/`.
 - `.github/workflows/check.yml`: tes syntax/build dan memastikan SQL backend tidak masuk output publik.
