@@ -28,6 +28,8 @@ create index if not exists content_assets_scheduled_idx
   on public.content_assets (scheduled_date, scheduled_time);
 create index if not exists content_assets_created_idx
   on public.content_assets (created_at desc);
+create index if not exists content_assets_uploaded_by_idx
+  on public.content_assets (uploaded_by);
 
 drop policy if exists content_assets_read_team on public.content_assets;
 create policy content_assets_read_team
@@ -48,11 +50,7 @@ drop policy if exists content_assets_update_team on public.content_assets;
 create policy content_assets_update_team
 on public.content_assets for update to authenticated
 using (public.is_team_member())
-with check (
-  public.is_team_member()
-  and uploaded_by = (select auth.uid())
-  and path like ('content/' || (select auth.uid())::text || '/%')
-);
+with check (public.is_team_member());
 
 drop policy if exists content_assets_delete_team on public.content_assets;
 create policy content_assets_delete_team
