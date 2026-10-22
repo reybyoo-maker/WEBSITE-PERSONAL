@@ -220,7 +220,7 @@ function renderContent() {
       const at = a.scheduled_time || "23:59:59";
       const bt = b.scheduled_time || "23:59:59";
       const difference = (a.scheduled_date + "T" + at).localeCompare(b.scheduled_date + "T" + bt);
-      if (difference) return -difference;
+      if (difference) return difference;
     }
     if (a.scheduled_date && !b.scheduled_date) return -1;
     if (!a.scheduled_date && b.scheduled_date) return 1;
@@ -428,7 +428,7 @@ function safeFilename(name) {
 async function uploadPrivateFile(taskId, file) {
   if (!file || file.size < 1) throw new Error("File kosong.");
   if (file.size > MAX_STORAGE_FILE_SIZE) {
-    throw new Error("Ukuran maksimum per file pada paket Supabase gratis adalah 50 MB. Kompres atau pecah file menjadi beberapa file lebih kecil.");
+    throw new Error("File melebihi batas upload yang didukung portal. Kompres atau pilih file yang lebih kecil.");
   }
   const path = taskId + "/" + state.user.id + "/" + crypto.randomUUID() + "-" + safeFilename(file.name);
   const { data, error } = await supabase.storage.from(STORAGE_BUCKET).upload(path, file, {
@@ -445,7 +445,7 @@ async function uploadTaskFile(form) {
   if (!task || !file) return;
   const button = $('button[type="submit"]', form);
   if (file.size > MAX_STORAGE_FILE_SIZE) {
-    return toast("Maksimum 50 MB per file pada paket gratis. Kompres atau pecah file terlebih dahulu.", "error");
+    return toast("File terlalu besar untuk diunggah melalui portal. Kompres atau pilih file yang lebih kecil.", "error");
   }
   button.disabled = true;
   button.textContent = "Mengunggah ke Supabase…";
@@ -687,7 +687,7 @@ async function restoreEncryptedBackup(file) {
       if (!createdBy || !assignedTo) throw new Error("PIC atau pembuat tugas tidak dapat dipetakan.");
       const payload = {
         id: old.id, title: old.title, description: old.description || "",
-        due_date: old.due_date || null, priority: old.priority || "normal",
+        due_date: old.due_date || null, due_time: old.due_time || null, priority: old.priority || "normal",
         status: "todo", created_by: createdBy, assigned_to: assignedTo,
         created_at: old.created_at
       };
