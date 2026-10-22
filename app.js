@@ -438,7 +438,7 @@ async function addComment(form) {
 const STORAGE_BUCKET = "ruang-kerja-files";
 const MAX_STORAGE_FILE_SIZE = 50 * 1024 * 1024;
 async function notifyTelegram(eventType, title, status, details = "") {
-  if (!supabase) return;
+  if (!supabase) return false;
   try {
     const { data, error } = await supabase.functions.invoke("notify-telegram", {
       body: {
@@ -459,19 +459,21 @@ async function notifyTelegram(eventType, title, status, details = "") {
       }
       console.warn("Notifikasi Telegram gagal:", message);
       toast("Notifikasi Telegram gagal: " + message, "error");
-      return;
+      return false;
     }
     if (data?.ok === false) {
       const message = data.error || "Periksa token bot dan Chat ID.";
       console.warn("Notifikasi Telegram gagal:", message);
       toast("Notifikasi Telegram gagal: " + message, "error");
-    } else {
-      console.info("Notifikasi Telegram terkirim:", eventType);
+      return false;
     }
+    console.info("Notifikasi Telegram terkirim:", eventType);
+    return true;
   } catch (error) {
     const message = error?.message || "Kesalahan yang tidak diketahui.";
     console.warn("Notifikasi Telegram gagal:", message);
     toast("Notifikasi Telegram gagal: " + message, "error");
+    return false;
   }
 }
 
@@ -905,6 +907,7 @@ $("#login-form").addEventListener("submit", async (event) => {
 document.addEventListener("click", async (event) => {
   const nav = event.target.closest("[data-view]");
   if (nav) { changeView(nav.dataset.view); return; }
+  if (event.target.closest("#test-telegram-button")) { toast("Mengirim tes notifikasi Telegram…", "success"); const sent = await notifyTelegram("task_status", "Tes notifikasi Telegram", "Tes koneksi", "Pesan percobaan dari portal Ruang Kerja."); if (sent) toast("Tes berhasil dikirim ke Telegram.", "success"); return; }
   if (event.target.closest("#new-task-top") || event.target.closest("[data-create-task]")) { openCreateModal(); return; }
   if (event.target.closest("#mobile-menu-button")) { $("#sidebar").classList.toggle("mobile-open"); return; }
   if (event.target.closest("#logout-button")) { await logout(); return; }
