@@ -436,7 +436,7 @@ async function uploadPrivateFile(taskId, file) {
     contentType: file.type || "application/octet-stream",
     upsert: false
   });
-  if (error) throw new Error(error.message || "Supabase Storage gagal menerima file.");
+  if (error) throw new Error(error.message || "Penyimpanan file gagal menerima upload.");
   return { path: data.path || path, size: file.size };
 }
 async function uploadTaskFile(form) {
@@ -888,6 +888,7 @@ if (!configured) {
       state.tasks = [];
       state.comments = [];
       state.attachments = [];
+      state.contentAssets = [];
       state.activities = [];
       showAuth();
     }
