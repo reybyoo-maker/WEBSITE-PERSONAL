@@ -246,7 +246,7 @@ function renderApprovals() {
 }
 function renderFiles() {
   const items = state.attachments.slice().sort((a, b) => b.created_at.localeCompare(a.created_at));
-  return '<div class="page-heading"><div><h2>Arsip & file</h2><p>Lampiran kerja dan file contoh yang terkait dengan tugas.</p></div><div class="heading-actions"><button class="btn btn-primary" data-connect-google-drive>' + (state.googleDriveConnected ? 'Hubungkan ulang Google Drive' : 'Hubungkan Google Drive') + '</button><button class="btn btn-secondary" data-backup-export>Backup terenkripsi</button><button class="btn btn-secondary" data-backup-restore>Pulihkan backup</button></div></div><div class="file-warning"><strong>Google Drive:</strong><span>' + (state.googleDriveConnected ? 'Terhubung — file baru disimpan ke folder Google Drive privat.' : 'Hubungkan Google Drive sebelum mengunggah file baru.') + '</span></div><div class="file-warning"><strong>Perhatian:</strong><span>Hanya unggah file non-rahasia yang memang boleh disimpan di layanan cloud ini.</span></div><section class="panel"><div class="panel-header"><div><h3>Semua lampiran</h3><p>File pekerjaan dapat diajukan untuk approval. File contoh bersifat opsional.</p></div><span class="role-badge">' + items.length + ' file</span></div>' +
+  return '<div class="page-heading"><div><h2>Arsip & file</h2><p>Lampiran kerja dan file contoh yang terkait dengan tugas.</p></div><div class="heading-actions"><button class="btn btn-secondary" data-backup-export>Backup terenkripsi</button><button class="btn btn-secondary" data-backup-restore>Pulihkan backup</button></div></div><div class="file-warning"><strong>Penyimpanan privat:</strong><span>File baru disimpan langsung di Supabase Storage. File akan dibersihkan otomatis setelah melewati 14 hari.</span></div><div class="file-warning"><strong>Perhatian:</strong><span>Hanya unggah file non-rahasia yang memang boleh disimpan di layanan cloud ini.</span></div><section class="panel"><div class="panel-header"><div><h3>Semua lampiran</h3><p>File pekerjaan dapat diajukan untuk approval. File contoh bersifat opsional.</p></div><span class="role-badge">' + items.length + ' file</span></div>' +
     (items.length ? items.map((file) => {
       const task = taskById(file.task_id);
       const ext = (file.file_name.split(".").pop() || "FILE").slice(0, 5).toUpperCase();
@@ -365,12 +365,6 @@ async function loadWorkspace() {
   state.comments = commentsRes.data || [];
   state.attachments = attachmentsRes.data || [];
   state.contentAssets = contentRes.data || [];
-  try {
-    const driveStatus = await invokeGoogleDrive("status");
-    state.googleDriveConnected = Boolean(driveStatus.connected);
-  } catch {
-    state.googleDriveConnected = false;
-  }
   await cleanupExpiredFiles();
   state.activities = activityRes.data || [];
   state.visitSchedules = visitsRes.data || [];
@@ -621,40 +615,31 @@ async function connectGoogleDrive() {
 async function uploadPrivateFile(taskId, file, onPart = () => {}) {
   if (!file || file.size < 1) throw new Error("File kosong.");
   if (file.size > MAX_STORAGE_FILE_SIZE) throw new Error("File " + file.name + " melebihi batas aplikasi 800 MiB.");
+  if (!supabase) throw new Error("Penyimpanan belum siap.");
   const rootPath = taskId === "content"
     ? "content/" + state.user.id + "/" + crypto.randomUUID()
     : taskId + "/" + state.user.id + "/" + crypto.randomUUID();
   const totalParts = Math.ceil(file.size / STORAGE_CHUNK_SIZE);
   if (totalParts > 100) throw new Error("File ini membutuhkan lebih dari 100 bagian upload.");
-  const fileIds = [];
+  const uploadedPaths = [];
   try {
     for (let part = 0; part < totalParts; part++) {
       const start = part * STORAGE_CHUNK_SIZE;
       const end = Math.min(start + STORAGE_CHUNK_SIZE, file.size);
       const partKey = rootPath + "/part-" + String(part + 1).padStart(4, "0");
       const mimeType = file.type || "application/octet-stream";
-      const session = await invokeGoogleDrive("start-upload", { key: partKey, mimeType, size: end - start });
-      if (!session.uploadUrl || !session.uploadUrl.startsWith("https://")) throw new Error("Sesi upload Google Drive tidak valid.");
-      const response = await fetch(session.uploadUrl, {
-        method: "PUT",
-        headers: {
-          "Content-Type": mimeType,
-          "Content-Range": "bytes 0-" + (end - start - 1) + "/" + (end - start)
-        },
-        body: file.slice(start, end)
-      });
-      if (!response.ok) {
-        const detail = await response.text().catch(() => "");
-        throw new Error("Upload ke Google Drive gagal (HTTP " + response.status + "). " + detail.slice(0, 180));
-      }
-      const result = await response.json().catch(() => ({}));
-      if (!result.id) throw new Error("Google Drive tidak mengembalikan ID file setelah upload.");
-      fileIds.push(result.id);
+      const { error } = await supabase.storage.from(STORAGE_BUCKET).upload(
+        partKey,
+        file.slice(start, end),
+        { contentType: mimeType, cacheControl: "3600", upsert: false }
+      );
+      if (error) throw error;
+      uploadedPaths.push(partKey);
       onPart(part + 1, totalParts);
     }
-    return { path: rootPath, storage_parts: fileIds, size: file.size, storage_provider: "google_drive" };
+    return { path: rootPath, storage_parts: uploadedPaths, size: file.size, storage_provider: "supabase" };
   } catch (error) {
-    if (fileIds.length) await removeStorageObjects(fileIds, "google_drive").catch(() => {});
+    if (uploadedPaths.length) await removeStorageObjects(uploadedPaths, "supabase").catch(() => {});
     throw error;
   }
 }
