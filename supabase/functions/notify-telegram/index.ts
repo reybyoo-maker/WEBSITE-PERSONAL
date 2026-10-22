@@ -45,7 +45,7 @@ Deno.serve(async (req: Request) => {
   try { payload = await req.json(); } catch { return json({ error: "Invalid JSON" }, 400); }
   const allowedEvents = new Set([
     "task_created", "task_status", "task_revision", "task_files_uploaded",
-    "content_created", "content_status",
+    "content_created", "content_status", "visit_schedule", "visit_deleted",
   ]);
   const eventType = String(payload.event_type || "");
   if (!allowedEvents.has(eventType)) return json({ error: "Unsupported event" }, 400);
@@ -57,6 +57,8 @@ Deno.serve(async (req: Request) => {
     task_files_uploaded: "LAMPIRAN TUGAS DIUNGGAH",
     content_created: "CONTENT BARU DIUNGGAH",
     content_status: "STATUS CONTENT BERUBAH",
+    visit_schedule: "SCHEDULE VISIT OFFLINE",
+    visit_deleted: "SCHEDULE VISIT DIHAPUS",
   };
   const clean = (value: unknown, max: number) =>
     String(value ?? "").replace(/[\u0000-\u001F\u007F]/g, " ").trim().slice(0, max);
