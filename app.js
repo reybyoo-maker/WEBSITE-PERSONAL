@@ -130,7 +130,7 @@ function showConfigWarning() {
   const node = $("#config-warning");
   node.hidden = false;
   node.innerHTML = "<strong>Setup belum selesai.</strong> Isi Project URL dan public anon/publishable key di <b>config.js</b>, lalu jalankan <b>supabase/schema.sql</b> di SQL Editor. Jangan memasukkan service-role/secret key di website.";
-  $("#login-form button").forEach((button) => { button.disabled = true; });
+  $$("#login-form button").forEach((button) => { button.disabled = true; });
 }
 function showLoading(text = "Memuat ruang kerja…") {
   $("#page-content").innerHTML = '<div class="loading-state"><span class="spinner"></span>' + esc(text) + "</div>";
@@ -381,7 +381,7 @@ async function loadWorkspace() {
 }
 
 function initializeFilePickers(root = document) {
-  $("[data-file-list]", root).forEach((container) => {
+  $$("[data-file-list]", root).forEach((container) => {
     const addRow = () => {
       const row = document.createElement("div");
       row.className = "dynamic-file-row";
