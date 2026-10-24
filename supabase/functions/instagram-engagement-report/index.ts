@@ -258,7 +258,7 @@ Deno.serve(async (req: Request) => {
         ? "Instagram membatasi akses publik. Cover atau sebagian angka mungkin tersedia, tetapi metrik lengkap tidak dapat dibaca."
         : (coverImageUrl || metaLikes !== null || metaComments !== null)
           ? "Data postingan hanya terbaca sebagian dari metadata publik. Share dan repost tidak tersedia dari respons ini."
-          : "Instagram tidak memberikan metadata postingan yang bisa dibaca. Coba postingan publik lain; angka tetap bisa diisi manual.";
+          : "Instagram tidak membuka metadata publik untuk pembacaan otomatis. Pratinjau postingan bisa dicoba melalui cover; angka metrik yang tidak tersedia perlu diisi manual atau diakses lewat API resmi yang sesuai.";
       return json({
         ok: true,
         source: "instagram_public_post",
