@@ -876,6 +876,7 @@ function previewTypeForFile(item) {
   const name = String(item.file_name || "").toLowerCase();
   if (mime.startsWith("image/") || /\.(png|jpe?g|gif|webp|avif|bmp|svg)$/i.test(name)) return "image";
   if (mime === "application/pdf" || /\.pdf$/i.test(name)) return "pdf";
+  if (/\.(pptx|ppt)$/i.test(name) || /application\/vnd\.openxmlformats-officedocument\.presentationml\.presentation|application\/vnd\.ms-powerpoint/.test(mime)) return "pptx";
   if (mime.startsWith("video/") || /\.(mp4|webm|ogv|mov|m4v)$/i.test(name)) return "video";
   if (mime.startsWith("audio/") || /\.(mp3|wav|ogg|m4a|aac|flac)$/i.test(name)) return "audio";
   if (mime.startsWith("text/") || /\.(txt|md|csv|json|xml|log|yaml|yml|ini)$/i.test(name)) return "text";
@@ -888,6 +889,62 @@ function closeFilePreview() {
   if (state.previewObjectUrl) URL.revokeObjectURL(state.previewObjectUrl);
   state.previewObjectUrl = null;
 }
+
+async function renderPowerPointPreview(blob, stage, meta, requestId) {
+  meta.textContent = "Memuat renderer presentasi…";
+  stage.innerHTML = '<div class="file-preview-loading">Membaca slide PowerPoint…</div>';
+  // Presentation data stays in this browser tab; only the renderer code is loaded from the CDN.
+  const { parse, renderSlideToSvg } = await import("https://esm.sh/@web-ppt/core@0.4.5");
+  const presentation = await parse(blob);
+  if (requestId !== state.previewRequestId || !stage.isConnected) return;
+  const slides = Array.isArray(presentation.slides) ? presentation.slides : [];
+  if (!slides.length) throw new Error("Presentasi tidak memiliki slide yang dapat ditampilkan.");
+  stage.innerHTML =
+    '<div class="pptx-preview-toolbar">' +
+      '<button type="button" class="btn btn-secondary btn-small pptx-slide-prev" disabled>← Sebelumnya</button>' +
+      '<span class="pptx-slide-indicator" aria-live="polite">Slide 1 dari ' + slides.length + '</span>' +
+      '<button type="button" class="btn btn-secondary btn-small pptx-slide-next"' + (slides.length < 2 ? ' disabled' : '') + '>Berikutnya →</button>' +
+    '</div><div class="pptx-slide-frame"><div class="pptx-slide-content" aria-label="Slide PowerPoint"></div></div>';
+  const content = $(".pptx-slide-content", stage);
+  const prev = $(".pptx-slide-prev", stage);
+  const next = $(".pptx-slide-next", stage);
+  const indicator = $(".pptx-slide-indicator", stage);
+  let currentIndex = 0;
+  async function paintCurrentSlide() {
+    if (requestId !== state.previewRequestId || !stage.isConnected) return;
+    indicator.textContent = "Slide " + (currentIndex + 1) + " dari " + slides.length;
+    prev.disabled = currentIndex === 0;
+    next.disabled = currentIndex >= slides.length - 1;
+    content.innerHTML = '<div class="file-preview-loading">Merender slide ' + (currentIndex + 1) + '…</div>';
+    let svgMarkup = renderSlideToSvg(presentation, slides[currentIndex]);
+    if (svgMarkup && typeof svgMarkup.then === "function") svgMarkup = await svgMarkup;
+    if (requestId !== state.previewRequestId || !stage.isConnected) return;
+    if (typeof svgMarkup !== "string" || !svgMarkup.includes("<svg")) {
+      throw new Error("Renderer tidak menghasilkan gambar slide yang valid.");
+    }
+    content.innerHTML = svgMarkup;
+    const svg = $("svg", content);
+    if (svg) {
+      svg.setAttribute("role", "img");
+      svg.setAttribute("aria-label", "Slide " + (currentIndex + 1) + " dari " + slides.length);
+    }
+    meta.textContent = "PowerPoint · " + slides.length + " slide · dipreview langsung di browser. Gunakan tombol navigasi untuk berpindah slide.";
+  }
+  prev.addEventListener("click", async () => {
+    if (currentIndex <= 0) return;
+    currentIndex--;
+    try { await paintCurrentSlide(); }
+    catch (error) { meta.textContent = "Gagal merender slide: " + (error.message || "kesalahan tidak diketahui"); }
+  });
+  next.addEventListener("click", async () => {
+    if (currentIndex >= slides.length - 1) return;
+    currentIndex++;
+    try { await paintCurrentSlide(); }
+    catch (error) { meta.textContent = "Gagal merender slide: " + (error.message || "kesalahan tidak diketahui"); }
+  });
+  await paintCurrentSlide();
+}
+
 async function previewFile(fileId, kind = "attachment") {
   closeFilePreview();
   const requestId = ++state.previewRequestId;
@@ -918,7 +975,9 @@ async function previewFile(fileId, kind = "attachment") {
     if (requestId !== state.previewRequestId || !stage.isConnected) return;
     const objectUrl = URL.createObjectURL(blob);
     state.previewObjectUrl = objectUrl;
-    if (previewType === "image") {
+    if (previewType === "pptx") {
+      await renderPowerPointPreview(blob, stage, meta, requestId);
+    } else if (previewType === "image") {
       stage.innerHTML = '<img class="file-preview-image" src="' + esc(objectUrl) + '" alt="Preview ' + esc(file.file_name) + '">';
       const image = $(".file-preview-image", stage);
       image.addEventListener("load", () => {

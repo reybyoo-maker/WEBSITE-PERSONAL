@@ -784,3 +784,24 @@ select,
   .file-preview-modal .modal-footer .section-note { flex: 1 1 100%; }
   .file-preview-modal .modal-footer .btn { flex: 1 1 auto; }
 }
+
+
+/* PowerPoint preview canvas: preserve the slide's original aspect ratio. */
+.pptx-preview-toolbar {
+  display:flex; align-items:center; justify-content:center; flex-wrap:wrap;
+  gap:10px; width:100%; padding:10px 8px 14px;
+}
+.pptx-slide-indicator {
+  min-width:110px; color:#33445f; text-align:center; font-size:12px;
+  font-weight:750; font-variant-numeric:tabular-nums;
+}
+.pptx-slide-frame { display:flex; align-items:flex-start; justify-content:center; width:100%; min-height:120px; overflow:auto; }
+.pptx-slide-content { flex:0 0 auto; width:100%; max-width:1080px; min-height:80px; background:#fff; box-shadow:0 4px 24px rgba(25,42,70,.12); }
+.pptx-slide-content svg { display:block; width:100%; height:auto; max-width:100%; }
+.pptx-preview-toolbar .btn:disabled { cursor:not-allowed; opacity:.42; }
+@media(max-width:640px) {
+  .pptx-preview-toolbar { gap:7px; padding:7px 3px 11px; }
+  .pptx-preview-toolbar .btn { padding:9px 10px; font-size:10px; }
+  .pptx-slide-indicator { min-width:86px; font-size:11px; }
+  .pptx-slide-content { min-width:100%; }
+}
