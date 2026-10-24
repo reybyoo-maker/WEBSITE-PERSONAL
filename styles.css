@@ -928,3 +928,23 @@ select,
 }
 
 .ig-row-status.is-partial { color:#9a6700; }
+
+/* Instagram inline post preview fallback when thumbnail metadata is not public */
+.ig-cover-link {
+  border:0; padding:0; background:transparent; cursor:pointer; font:inherit; text-align:initial;
+}
+.ig-cover-fallback { font-size:11px; line-height:1.35; text-align:center; padding:5px; }
+.ig-post-preview-modal { width:min(650px,100%); max-height:min(92vh,950px); overflow:hidden; }
+.ig-post-preview-modal .modal-header { flex:0 0 auto; }
+.ig-post-preview-body { min-height:180px; max-height:calc(92vh - 110px); padding:12px; overflow:auto; background:#f6f8fc; }
+.ig-post-preview-embed { min-height:240px; display:flex; justify-content:center; align-items:flex-start; overflow:auto; }
+.ig-post-preview-embed .instagram-media { margin:0 auto !important; }
+.ig-post-preview-link { margin:12px 0 4px; text-align:center; font-size:12px; }
+.ig-post-preview-link a { color:#2468e8; text-decoration:none; font-weight:700; }
+.ig-post-preview-link a:hover { text-decoration:underline; }
+.ig-row-status.is-partial { color:#9a6700; }
+@media(max-width:640px) {
+  .ig-post-preview-modal { max-height:95vh; }
+  .ig-post-preview-body { max-height:calc(95vh - 100px); padding:8px; }
+  .ig-post-preview-embed { margin-inline:-4px; }
+}
