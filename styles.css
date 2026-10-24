@@ -948,3 +948,9 @@ select,
   .ig-post-preview-body { max-height:calc(95vh - 100px); padding:8px; }
   .ig-post-preview-embed { margin-inline:-4px; }
 }
+
+/* Cover thumbnail is an in-table glance only; it does not navigate to Instagram. */
+.ig-cover-static { display:block; width:76px; }
+.ig-cover-static .ig-cover-frame { cursor:default; }
+.ig-cover-static .ig-cover-fallback { z-index:0; overflow-wrap:anywhere; font-size:10px; padding:5px; }
+.ig-cover-static .ig-cover-image { z-index:1; }
