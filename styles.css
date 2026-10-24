@@ -955,9 +955,3 @@ select,
 .ig-cover-static .ig-cover-fallback { z-index:0; overflow-wrap:anywhere; font-size:10px; padding:5px; }
 .ig-cover-static .ig-cover-image { z-index:1; }
 
-/* Keep post preview inside the dashboard; the cover is an in-panel action. */
-.ig-cover-static.ig-post-preview {
-  display:block; width:100%; border:0; padding:0; background:transparent; cursor:pointer; text-align:inherit; color:inherit;
-}
-.ig-cover-static.ig-post-preview:hover .ig-cover-frame { outline:2px solid var(--accent, #4778e8); outline-offset:2px; }
-.ig-post-preview-modal .modal-header p { margin-top:4px; font-size:12px; opacity:.75; }
