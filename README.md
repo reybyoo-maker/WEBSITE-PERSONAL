@@ -1,6 +1,6 @@
 # RUANG KERJA — portal pekerjaan pribadi
 
-Portal responsif untuk koordinasi tim: tugas dan deadline, approval/revisi, lampiran pekerjaan, panel Content, schedule visit offline, backup terenkripsi, notifikasi Telegram, penyimpanan privat Supabase Storage, serta penghapusan file otomatis setelah 14 hari.
+Portal responsif untuk koordinasi tim: tugas dan deadline, approval/revisi, lampiran terpisah untuk Lampiran File, Contoh, dan Hasil Sudah Dikerjakan, panel Content, schedule visit offline, backup terenkripsi, notifikasi Telegram, penyimpanan privat Supabase Storage, serta penghapusan file otomatis setelah 14 hari.
 
 ## Status project
 
@@ -26,6 +26,10 @@ Portal memecah file menjadi potongan masing-masing **20 MiB**, sehingga batas ap
 Supabase Cron berjalan setiap hari sekitar pukul 10.17 WIB dan menghapus file serta metadata yang usianya sudah 14 hari atau lebih. Penghapusan manual langsung membuang objek dari Storage agar ruang bisa dipakai kembali. Backup-kan file penting di tempat terpisah sebelum usia retensi habis.
 
 Dokumentasi: [Batas file Supabase Storage](https://supabase.com/docs/guides/storage/uploads/file-limits) · [Menghapus objek](https://supabase.com/docs/guides/storage/management/delete-objects) · [Supabase Cron](https://supabase.com/docs/guides/cron)
+
+## Perubahan skema lampiran hasil
+
+Untuk database yang sudah aktif, jalankan `supabase/migrations/20261024_add_result_attachment_type.sql` satu kali melalui Supabase SQL Editor sebelum mengunggah file kategori **Hasil Sudah Dikerjakan**. Migration ini hanya memperluas tipe lampiran yang diizinkan; lampiran lama tetap dipertahankan.
 
 ## Jalankan website
 
@@ -61,7 +65,7 @@ Gunakan akun dummy dan file non-rahasia. Pastikan:
 - tugas sebelum deadline menampilkan status Aktif, dan tugas yang lewat deadline ditandai Terlambat;
 - klik Sudah beres pada tugas atau content membuatnya muncul di panel Approval & revisi;
 - keputusan Approval mengubah status item menjadi Done, sedangkan Revisi menyimpan deskripsi perubahan;
-- tugas menerima beberapa file pekerjaan dan file contoh opsional; pilih file satu per satu, lalu kolom berikutnya muncul otomatis;
+- tugas menerima file terpisah untuk Lampiran File, Contoh, dan Hasil Sudah Dikerjakan; pilih file satu per satu pada tiap kategori, lalu kolom berikutnya muncul otomatis;
 - lampiran dipecah menjadi bagian privat 20 MiB, bisa diunduh kembali, dan metadata file baru menunjukkan `storage_provider = supabase`;
 - tombol Hapus menghapus objek dari Supabase Storage serta metadata terkait;
 - panel Content mendukung beberapa lampiran, Copy caption, pilihan Reels/Feed/Carousel, tanggal/jam, dan approval;
@@ -107,7 +111,7 @@ Menu Arsip & File menyediakan backup terenkripsi browser `.rkbak`. Saat ini back
 - `index.html`, `styles.css`, `app.js`: antarmuka dan logika frontend.
 - `config.js`: Supabase URL dan public publishable key.
 - `supabase/schema.sql`: schema untuk instalasi baru, tabel, RLS, bucket privat legacy.
-- `supabase/migrations/`: migrasi perubahan database, termasuk akses dua kode, retensi 14 hari, storage provider, dan schedule visit offline.
+- `supabase/migrations/`: migrasi perubahan database, termasuk akses dua kode, retensi 14 hari, storage provider, schedule visit offline, dan kategori lampiran hasil.
 - `supabase/functions/google-drive-storage/index.ts`: endpoint privat untuk pembersihan file dan metadata setelah 14 hari.
 - `supabase/functions/notify-telegram/index.ts`: notifikasi Telegram.
 - Supabase Cron: job `ruang-kerja-rey-storage-retention` untuk menjalankan pembersihan otomatis harian.

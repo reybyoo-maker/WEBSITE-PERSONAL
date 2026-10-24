@@ -710,3 +710,12 @@ select,
     transition-duration: .01ms !important;
   }
 }
+
+
+/* Task attachment categories: Lampiran File, Contoh, and Hasil Sudah Dikerjakan */
+.task-attachment-group{margin:14px 0 10px;border:1px solid var(--line,#e5e9ef);border-radius:10px;overflow:hidden}
+.task-attachment-group-header{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 14px;background:#f7f9fc;border-bottom:1px solid var(--line,#e5e9ef)}
+.task-attachment-group-header h4{margin:0;font-size:11px;font-weight:850;color:#34445b}
+.task-attachment-group .file-row{border-bottom:1px solid #eef1f5}
+.task-attachment-group .file-row:last-child{border-bottom:0}
+.task-attachment-upload-section{padding:12px;border:1px solid var(--line,#e5e9ef);border-radius:10px;background:#fbfcfe}

@@ -270,7 +270,7 @@ create table public.task_attachments (
   storage_provider text not null default 'supabase' check (storage_provider in ('supabase','backblaze','google_drive')),
   storage_uploaded_at timestamptz not null default now(),
   created_at timestamptz not null default now(),
-  attachment_type text not null default 'work' check (attachment_type in ('work','example')),
+  attachment_type text not null default 'work' check (attachment_type in ('work','example','result')),
   check (path like task_id::text || '/%')
 );
 create index task_attachments_task_idx on public.task_attachments (task_id, created_at);
