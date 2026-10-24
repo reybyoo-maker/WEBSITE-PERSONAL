@@ -926,3 +926,5 @@ select,
   .ig-cover-link, .ig-cover-frame { width:62px; }
   .ig-cover-frame { height:78px; }
 }
+
+.ig-row-status.is-partial { color:#9a6700; }
