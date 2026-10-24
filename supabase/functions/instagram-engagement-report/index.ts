@@ -115,7 +115,7 @@ Deno.serve(async (req: Request) => {
     available: posts.filter((post) => post[key] !== null).length,
   });
   const likes = totals("likes");
-  const comments = totals("comments);
+  const comments = totals("comments");
   return json({
     ok: true,
     source: "instagram_public_profile",
