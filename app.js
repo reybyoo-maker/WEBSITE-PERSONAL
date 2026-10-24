@@ -387,14 +387,14 @@ function renderInstagramReport() {
   const tableRows = posts.map((post) => {
     const status = post.lookup_status === "loading" ? "Membaca metrik…"
       : post.lookup_status === "error" ? "Auto-read belum berhasil"
-      : post.lookup_status === "partial" ? "Instagram tidak membuka metrik"
+      : post.lookup_status === "partial" ? "Metadata web publik tidak memuat angka"
       : post.fetched_at ? "Diperbarui " + fmtDateTime(post.fetched_at)
       : "Data bisa diedit";
     const rowTotal = instagramKnownTotal(post);
-    const coverMarkup = '<button type="button" class="ig-cover-static ig-post-preview" data-id="' + esc(post.id) + '" title="Lihat postingan sekilas di panel" aria-label="Lihat pratinjau postingan Instagram">' +
-      '<span class="ig-cover-frame"><span class="ig-cover-fallback" aria-hidden="true">' + (post.image_url ? 'Memuat cover…' : 'Pratinjau post') + '</span>' +
-      (post.image_url ? '<img class="ig-cover-image" src="' + esc(post.image_url) + '" alt="Cover postingan Instagram" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove(); this.parentElement.querySelector(\'.ig-cover-fallback\').textContent=\'Pratinjau post\';">' : '') +
-      '</span></button>';
+    const coverMarkup = '<div class="ig-cover-static" title="' + (post.image_url ? 'Cover postingan dari metadata web publik' : 'Cover tidak ditemukan pada metadata web publik') + '">' +
+      '<span class="ig-cover-frame"><span class="ig-cover-fallback" aria-hidden="true">' + (post.image_url ? 'Memuat cover…' : 'Cover tidak tersedia') + '</span>' +
+      (post.image_url ? '<img class="ig-cover-image" src="' + esc(post.image_url) + '" alt="Cover postingan Instagram" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove(); this.parentElement.querySelector(\'.ig-cover-fallback\').textContent=\'Cover tidak tersedia\';">' : '') +
+      '</span></div>';
     const metricInput = (field, label) => '<input class="ig-metric-edit" data-post-id="' + esc(post.id) + '" data-field="' + field + '" type="number" min="0" step="1" inputmode="numeric" aria-label="' + label + '" value="' + (post[field] === null || post[field] === undefined ? "" : esc(post[field])) + '" placeholder="—">';
     return '<tr data-instagram-post-row="' + esc(post.id) + '"><td class="ig-cover-cell">' + coverMarkup + '</td><td><div class="ig-post-title">' +
       esc((post.caption || "Post Instagram").slice(0, 160)) + '</div><div class="ig-post-meta"><a href="' + esc(post.url) + '" target="_blank" rel="noopener noreferrer">Buka postingan ↗</a>' +
@@ -409,7 +409,7 @@ function renderInstagramReport() {
     ? '<div class="ig-setup-notice"><strong>Catatan pembacaan otomatis</strong><p>' + esc(report.error) + '</p></div>' : "";
   const totalEngagement = posts.map(instagramKnownTotal).filter((value) => value !== null).reduce((sum, value) => sum + value, 0);
   const updated = report.lastFetched ? fmtDateTime(report.lastFetched) : "Belum ada sinkronisasi";
-  return '<div class="page-heading"><div><h2>Instagram Engagement Report</h2><p>Tempel link untuk melihat cover dan angka engagement yang tersedia langsung di tabel. Total dihitung otomatis; tidak perlu membuka Instagram.</p></div><div class="heading-actions"><button class="btn btn-secondary" type="button" data-instagram-refresh-all' + (report.loading || !posts.length ? ' disabled' : '') + '>' + (report.loading ? 'Memperbarui…' : '↻ Perbarui semua') + '</button></div></div>' +
+  return '<div class="page-heading"><div><h2>Instagram Engagement Report</h2><p>Tempel link; dashboard membaca metadata dari halaman web publik tanpa login. Angka yang tidak ditampilkan sumber publik akan dibiarkan kosong.</p></div><div class="heading-actions"><button class="btn btn-secondary" type="button" data-instagram-refresh-all' + (report.loading || !posts.length ? ' disabled' : '') + '>' + (report.loading ? 'Memperbarui…' : '↻ Perbarui semua') + '</button></div></div>' +
     '<form class="ig-lookup-form" id="instagram-post-form"><label for="instagram-post-url">Link postingan Instagram<input id="instagram-post-url" name="post_url" type="url" inputmode="url" autocomplete="url" spellcheck="false" placeholder="https://www.instagram.com/p/..." required></label><button class="btn btn-primary" type="submit"' + (report.loading || posts.length >= 30 ? ' disabled' : '') + '>' + (report.loading ? 'Memproses…' : 'Tambah & baca engagement') + '</button></form>' +
     errorText +
     '<div class="ig-account-strip"><div><span class="ig-strip-label">Daftar postingan</span><strong>' + formatMetric(posts.length) + ' link tersimpan</strong><small>Update terakhir: ' + esc(updated) + ' · tersimpan di browser ini</small></div><span class="role-badge">' + (report.loading ? 'Sedang membaca' : posts.length ? 'Report per post' : 'Belum ada post') + '</span></div>' +
@@ -1714,8 +1714,6 @@ document.addEventListener("click", async (event) => {
   const nav = event.target.closest("[data-view]");
   if (nav) { changeView(nav.dataset.view); return; }
   if (event.target.closest("[data-instagram-refresh-all]")) { await refreshInstagramPosts(); return; }
-  const instagramPreview = event.target.closest(".ig-post-preview");
-  if (instagramPreview) { openInstagramPostPreview(instagramPreview.dataset.id); return; }
   const refreshInstagramOne = event.target.closest(".ig-refresh-one");
   if (refreshInstagramOne) { await refreshInstagramPosts([refreshInstagramOne.dataset.id]); return; }
   const deleteInstagramPost = event.target.closest(".ig-delete-post");
