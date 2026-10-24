@@ -393,7 +393,7 @@ function renderInstagramReport() {
     const rowTotal = instagramKnownTotal(post);
     const coverMarkup = '<div class="ig-cover-static" title="' + (post.image_url ? 'Cover postingan' : 'Cover tidak tersedia dari data publik Instagram') + '">' +
       '<span class="ig-cover-frame"><span class="ig-cover-fallback" aria-hidden="true">' + (post.image_url ? 'Memuat cover…' : 'Cover belum tersedia') + '</span>' +
-      (post.image_url ? '<img class="ig-cover-image" src="' + esc(post.image_url) + '" alt="Cover postingan Instagram" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove();">' : '') +
+      (post.image_url ? '<img class="ig-cover-image" src="' + esc(post.image_url) + '" alt="Cover postingan Instagram" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove(); this.parentElement.querySelector(\'.ig-cover-fallback\').textContent=\'Cover tidak tersedia\';">' : '') +
       '</span></div>';
     const metricInput = (field, label) => '<input class="ig-metric-edit" data-post-id="' + esc(post.id) + '" data-field="' + field + '" type="number" min="0" step="1" inputmode="numeric" aria-label="' + label + '" value="' + (post[field] === null || post[field] === undefined ? "" : esc(post[field])) + '" placeholder="—">';
     return '<tr data-instagram-post-row="' + esc(post.id) + '"><td class="ig-cover-cell">' + coverMarkup + '</td><td><div class="ig-post-title">' +
