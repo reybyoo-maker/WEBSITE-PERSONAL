@@ -15,7 +15,7 @@ const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
 const state = {
   user: null, profile: null, profiles: [], tasks: [], comments: [], attachments: [], contentAssets: [], activities: [], visitSchedules: [],
-  view: "dashboard", selectedTaskId: null, loading: false, googleDriveConnected: false
+  view: "dashboard", selectedTaskId: null, loading: false, googleDriveConnected: false, previewObjectUrl: null, previewRequestId: 0
 };
 const STATUS = {
   todo: "Belum dimulai",
@@ -239,7 +239,7 @@ function renderApprovals() {
       ? '<p class="revision-note-display"><strong>Catatan revisi:</strong> ' + esc(latestComment.comment) + '</p>' : "";
     const resultFiles = state.attachments.filter((file) => file.task_id === task.id && file.attachment_type === "result");
     const resultMarkup = resultFiles.length
-      ? '<div class="approval-result-files"><strong>Hasil Sudah Dikerjakan (' + resultFiles.length + ')</strong>' + resultFiles.map((file) => '<div class="approval-result-file"><span>' + esc(file.file_name) + ' · ' + esc(formatBytes(file.size_bytes)) + '</span><button class="btn btn-secondary btn-small download-file" data-id="' + esc(file.id) + '">Unduh hasil</button></div>').join("") + '</div>'
+      ? '<div class="approval-result-files"><strong>Hasil Sudah Dikerjakan (' + resultFiles.length + ')</strong>' + resultFiles.map((file) => '<div class="approval-result-file"><span>' + esc(file.file_name) + ' · ' + esc(formatBytes(file.size_bytes)) + '</span><button class="btn btn-secondary btn-small preview-file" data-kind="attachment" data-id="' + esc(file.id) + '">Preview</button><button class="btn btn-secondary btn-small download-file" data-id="' + esc(file.id) + '">Unduh hasil</button></div>').join("") + '</div>'
       : '<p class="approval-result-missing">Belum ada hasil yang dilampirkan.</p>';
     return '<article class="approval-card"><div><h3>' + esc(task.title) + '</h3><p>' + esc((task.description || "Tidak ada deskripsi").slice(0, 170)) + '</p>' + revisionNote + resultMarkup + '<div class="task-subline">' + statusBadge(task.status) + deadlineStatusBadge(task) + '<span>PIC: ' + esc(profileName(task.assigned_to)) + '</span><span>Deadline: ' + esc(deadlineLabel(task, "—")) + '</span></div></div><div class="approval-actions"><button class="btn btn-secondary btn-small task-open" data-id="' + esc(task.id) + '">Buka tugas</button>' + (task.status === "in_review" ? '<button class="btn btn-warning btn-small task-quick-revision" data-id="' + esc(task.id) + '">Revisi</button><button class="btn btn-approve btn-small task-quick-status" data-id="' + esc(task.id) + '" data-status="done">Approval · Done</button>' : "") + '</div></article>';
   }).join("");
@@ -255,7 +255,7 @@ function renderFiles() {
       const task = taskById(file.task_id);
       const ext = (file.file_name.split(".").pop() || "FILE").slice(0, 5).toUpperCase();
       const canSubmit = task && !["in_review", "approved", "done", "archived"].includes(task.status);
-      return '<div class="file-row"><div class="file-type-icon">' + esc(ext) + '</div><div class="file-info"><strong>' + esc(file.file_name) + '</strong><p>' + esc(attachmentTypeLabel(file.attachment_type)) + ' · ' + esc(task ? task.title : "Tugas") + ' · ' + esc(fmtDateTime(file.created_at)) + ' · ' + esc(formatBytes(file.size_bytes)) + '</p></div><div class="file-row-actions"><button class="btn btn-secondary btn-small download-file" data-id="' + esc(file.id) + '">Unduh</button>' + (canSubmit ? '<button class="btn btn-primary btn-small submit-task-file" data-id="' + esc(task.id) + '">Ajukan approval</button>' : '') + '<button class="btn btn-ghost btn-small delete-task-file" data-id="' + esc(file.id) + '">Hapus</button></div></div>';
+      return '<div class="file-row"><div class="file-type-icon">' + esc(ext) + '</div><div class="file-info"><strong>' + esc(file.file_name) + '</strong><p>' + esc(attachmentTypeLabel(file.attachment_type)) + ' · ' + esc(task ? task.title : "Tugas") + ' · ' + esc(fmtDateTime(file.created_at)) + ' · ' + esc(formatBytes(file.size_bytes)) + '</p></div><div class="file-row-actions"><button class="btn btn-secondary btn-small preview-file" data-kind="attachment" data-id="' + esc(file.id) + '">Preview</button><button class="btn btn-secondary btn-small download-file" data-id="' + esc(file.id) + '">Unduh</button>' + (canSubmit ? '<button class="btn btn-primary btn-small submit-task-file" data-id="' + esc(task.id) + '">Ajukan approval</button>' : '') + '<button class="btn btn-ghost btn-small delete-task-file" data-id="' + esc(file.id) + '">Hapus</button></div></div>';
     }).join("") : emptyState("Belum ada lampiran", "Buka detail tugas untuk menambahkan Lampiran File, Contoh, atau Hasil Sudah Dikerjakan.")) + '</section>';
 }
 function renderContent() {
@@ -269,7 +269,7 @@ function renderContent() {
     return b.created_at.localeCompare(a.created_at);
   });
   const rows = items.length ? items.map((item) => {
-    const fileRows = item.files.map((file) => '<div class="content-file-row"><span class="file-type-icon">' + esc((file.file_name.split(".").pop() || "FILE").slice(0, 4).toUpperCase()) + '</span><span class="content-file-name">' + esc(file.file_name) + ' · ' + esc(formatBytes(file.size_bytes)) + '</span><button class="btn btn-secondary btn-small download-content" data-id="' + esc(file.id) + '">Unduh</button></div>').join("");
+    const fileRows = item.files.map((file) => '<div class="content-file-row"><span class="file-type-icon">' + esc((file.file_name.split(".").pop() || "FILE").slice(0, 4).toUpperCase()) + '</span><span class="content-file-name">' + esc(file.file_name) + ' · ' + esc(formatBytes(file.size_bytes)) + '</span><button class="btn btn-secondary btn-small preview-file" data-kind="content" data-id="' + esc(file.id) + '">Preview</button><button class="btn btn-secondary btn-small download-content" data-id="' + esc(file.id) + '">Unduh</button></div>').join("");
     return '<article class="content-item"><div class="content-item-main"><div class="content-item-copy"><h3>' + esc(item.title) + ' <span class="role-badge">' + esc(contentFormatLabel(item.content_format)) + '</span></h3><p class="content-caption">' + esc(item.caption || "Belum ada caption.") + '</p><div class="content-item-meta"><span>◷ ' + esc(contentScheduleLabel(item)) + '</span><span>' + item.files.length + ' file</span><span>Status: ' + esc(STATUS[item.status] || item.status) + '</span></div>' + (item.revision_note ? '<p class="revision-note-display"><strong>Catatan revisi:</strong> ' + esc(item.revision_note) + '</p>' : '') + '</div></div><div class="content-files-list">' + fileRows + '</div><div class="content-item-actions"><button class="btn btn-secondary btn-small copy-caption" data-id="' + esc(item.content_group_id) + '">Copy caption</button>' + (["todo", "changes_requested"].includes(item.status) ? '<button class="btn btn-primary btn-small content-mark-done" data-id="' + esc(item.content_group_id) + '">Sudah beres</button>' : '') + (item.status === "in_review" ? '<span class="section-note">Menunggu approval</span>' : '') + (item.status === "done" ? '<span class="section-note">Sudah Done</span>' : '') + '<button class="btn btn-ghost btn-small delete-content" data-id="' + esc(item.content_group_id) + '">Hapus content</button></div></article>';
   }).join("") : emptyState("Belum ada content", "Upload beberapa file sekaligus, tambahkan caption, format, dan jadwal publikasi.");
   return '<div class="page-heading"><div><h2>Content</h2><p>Kelola file Reels, Feed, dan Carousel; caption bisa disalin dan item dikirim untuk approval.</p></div><span class="role-badge">' + items.length + ' content</span></div>' +
@@ -471,7 +471,7 @@ function openTaskModal(taskId) {
       const groupedFiles = files.filter((file) => (file.attachment_type || "work") === type);
       if (!groupedFiles.length) return "";
       return '<section class="task-attachment-group"><div class="task-attachment-group-header"><h4>' + esc(attachmentTypeLabel(type)) + '</h4><span class="role-badge">' + groupedFiles.length + '</span></div>' +
-        groupedFiles.map((file) => '<div class="file-row"><div class="file-type-icon">' + esc((file.file_name.split(".").pop() || "FILE").slice(0, 4).toUpperCase()) + '</div><div class="file-info"><strong>' + esc(file.file_name) + '</strong><p>' + esc(formatBytes(file.size_bytes)) + ' · ' + esc(fmtDateTime(file.created_at)) + '</p></div><div class="file-row-actions"><button class="btn btn-secondary btn-small download-file" data-id="' + esc(file.id) + '">Unduh</button>' + (!["in_review", "approved", "done", "archived"].includes(task.status) ? '<button class="btn btn-primary btn-small submit-task-file" data-id="' + esc(task.id) + '">Ajukan approval</button>' : '') + '<button class="btn btn-ghost btn-small delete-task-file" data-id="' + esc(file.id) + '">Hapus</button></div></div>').join("") +
+        groupedFiles.map((file) => '<div class="file-row"><div class="file-type-icon">' + esc((file.file_name.split(".").pop() || "FILE").slice(0, 4).toUpperCase()) + '</div><div class="file-info"><strong>' + esc(file.file_name) + '</strong><p>' + esc(formatBytes(file.size_bytes)) + ' · ' + esc(fmtDateTime(file.created_at)) + '</p></div><div class="file-row-actions"><button class="btn btn-secondary btn-small preview-file" data-kind="attachment" data-id="' + esc(file.id) + '">Preview</button><button class="btn btn-secondary btn-small download-file" data-id="' + esc(file.id) + '">Unduh</button>' + (!["in_review", "approved", "done", "archived"].includes(task.status) ? '<button class="btn btn-primary btn-small submit-task-file" data-id="' + esc(task.id) + '">Ajukan approval</button>' : '') + '<button class="btn btn-ghost btn-small delete-task-file" data-id="' + esc(file.id) + '">Hapus</button></div></div>').join("") +
         '</section>';
     }).join("") : '<div class="empty-inline">' + (approvalView ? "Belum ada hasil yang dilampirkan untuk approval." : "Belum ada lampiran pada tugas ini.") + '</div>') +
     '<form id="upload-form" class="form-stack" style="gap:10px;margin-top:12px"><div class="field task-attachment-upload-section"><label>Lampiran File</label><div id="task-work-file-list" data-file-list data-file-class="task-file-work-input" data-file-name="work_files"></div><p class="field-help">File kerja, brief, atau dokumen yang terkait dengan tugas.</p></div><div class="field task-attachment-upload-section"><label>Contoh</label><div id="task-example-file-list" data-file-list data-file-class="task-file-example-input" data-file-name="example_files"></div><p class="field-help">File referensi, template, atau contoh yang dapat dijadikan acuan.</p></div><div class="field task-attachment-upload-section"><label>Hasil Sudah Dikerjakan</label><div id="task-result-file-list" data-file-list data-file-class="task-file-result-input" data-file-name="result_files"></div><p class="field-help">Unggah hasil akhir pekerjaan yang sudah dikerjakan untuk diperiksa dan diajukan ke approval.</p></div><p class="field-help">Maksimal 800 MiB per file sebagai batas aplikasi. Batas total penyimpanan gratis tetap berlaku.</p><button class="btn btn-secondary" type="submit">Unggah lampiran terpilih</button></form><h3 class="section-subtitle">Komentar & catatan <span class="role-badge">' + comments.length + '</span></h3><div class="comment-list">' + (comments.length ? comments.map((c) => {
@@ -870,6 +870,98 @@ async function downloadContentFile(contentId) {
   catch (error) { toast("Content tidak bisa diunduh: " + (error.message || "kesalahan tidak diketahui"), "error"); }
 }
 
+
+function previewTypeForFile(item) {
+  const mime = String(item.content_type || "").toLowerCase().split(";")[0].trim();
+  const name = String(item.file_name || "").toLowerCase();
+  if (mime.startsWith("image/") || /\.(png|jpe?g|gif|webp|avif|bmp|svg)$/i.test(name)) return "image";
+  if (mime === "application/pdf" || /\.pdf$/i.test(name)) return "pdf";
+  if (mime.startsWith("video/") || /\.(mp4|webm|ogv|mov|m4v)$/i.test(name)) return "video";
+  if (mime.startsWith("audio/") || /\.(mp3|wav|ogg|m4a|aac|flac)$/i.test(name)) return "audio";
+  if (mime.startsWith("text/") || /\.(txt|md|csv|json|xml|log|yaml|yml|ini)$/i.test(name)) return "text";
+  return "unsupported";
+}
+function closeFilePreview() {
+  state.previewRequestId += 1;
+  const overlay = $(".file-preview-backdrop", $("#modal-root"));
+  if (overlay) overlay.remove();
+  if (state.previewObjectUrl) URL.revokeObjectURL(state.previewObjectUrl);
+  state.previewObjectUrl = null;
+}
+async function previewFile(fileId, kind = "attachment") {
+  closeFilePreview();
+  const requestId = ++state.previewRequestId;
+  const file = kind === "content"
+    ? state.contentAssets.find((item) => item.id === fileId)
+    : state.attachments.find((item) => item.id === fileId);
+  if (!file) return toast("File tidak ditemukan.", "error");
+  const previewType = previewTypeForFile(file);
+  const sizeLabel = formatBytes(file.size_bytes);
+  $("#modal-root").insertAdjacentHTML("beforeend",
+    '<div class="file-preview-backdrop" data-preview-backdrop><section class="modal-card file-preview-modal" role="dialog" aria-modal="true" aria-labelledby="file-preview-title">' +
+    '<div class="modal-header"><div><h2 id="file-preview-title">' + esc(file.file_name) + '</h2><p>' + esc(sizeLabel) + ' · ' + esc(file.content_type || "Jenis file tidak tercatat") + '</p></div><button type="button" class="icon-button file-preview-close" aria-label="Tutup preview">×</button></div>' +
+    '<div class="modal-body file-preview-body"><div id="file-preview-meta" class="file-preview-meta">Menyiapkan pratinjau…</div><div id="file-preview-stage" class="file-preview-stage"><div class="file-preview-loading">Memuat file…</div></div></div>' +
+    '<div class="modal-footer"><span class="section-note">Preview tidak mengubah file asli.</span><button type="button" class="btn btn-secondary file-preview-close">Tutup</button><button type="button" class="btn btn-primary file-preview-download" data-kind="' + (kind === "content" ? "content" : "attachment") + '" data-id="' + esc(file.id) + '">Unduh file</button></div>' +
+    '</section></div>');
+  const stage = $("#file-preview-stage", $("#modal-root"));
+  const meta = $("#file-preview-meta", $("#modal-root"));
+  if (previewType === "unsupported") {
+    meta.textContent = "Format file ini belum didukung preview langsung di browser.";
+    stage.innerHTML = '<div class="file-preview-unsupported"><strong>Preview belum tersedia untuk format ini.</strong><p>File tetap aman tersimpan. Klik “Unduh file” untuk membukanya menggunakan aplikasi yang sesuai.</p></div>';
+    return;
+  }
+  if (Number(file.size_bytes || 0) > 150 * 1024 * 1024) {
+    meta.textContent = "File berukuran besar (" + sizeLabel + "). Proses preview dapat membutuhkan waktu dan memori.";
+  }
+  try {
+    const blob = await downloadStoredFile(file, true);
+    if (requestId !== state.previewRequestId || !stage.isConnected) return;
+    const objectUrl = URL.createObjectURL(blob);
+    state.previewObjectUrl = objectUrl;
+    if (previewType === "image") {
+      stage.innerHTML = '<img class="file-preview-image" src="' + esc(objectUrl) + '" alt="Preview ' + esc(file.file_name) + '">';
+      const image = $(".file-preview-image", stage);
+      image.addEventListener("load", () => {
+        if (requestId === state.previewRequestId && meta.isConnected) {
+          meta.textContent = "Resolusi asli: " + image.naturalWidth + " × " + image.naturalHeight + " px · ditampilkan proporsional tanpa crop.";
+        }
+      }, { once: true });
+      image.addEventListener("error", () => {
+        if (requestId === state.previewRequestId && stage.isConnected) {
+          stage.innerHTML = '<div class="file-preview-unsupported"><strong>Gambar tidak dapat ditampilkan.</strong><p>File mungkin rusak atau formatnya tidak didukung browser.</p></div>';
+        }
+      }, { once: true });
+    } else if (previewType === "pdf") {
+      meta.textContent = "PDF ditampilkan lewat viewer browser. Gunakan zoom di viewer untuk mengatur pembesaran.";
+      stage.innerHTML = '<iframe class="file-preview-pdf" src="' + esc(objectUrl) + '" title="Preview PDF ' + esc(file.file_name) + '"></iframe>';
+    } else if (previewType === "video") {
+      meta.textContent = "Video ditampilkan sesuai rasio aslinya; kontrol pemutar tersedia di bawah.";
+      stage.innerHTML = '<video class="file-preview-video" controls playsinline preload="metadata" src="' + esc(objectUrl) + '">Browser tidak mendukung pemutaran video ini.</video>';
+      const video = $(".file-preview-video", stage);
+      video.addEventListener("loadedmetadata", () => {
+        if (requestId === state.previewRequestId && meta.isConnected && video.videoWidth && video.videoHeight) meta.textContent = "Resolusi video: " + video.videoWidth + " × " + video.videoHeight + " px · rasio asli dipertahankan.";
+      }, { once: true });
+    } else if (previewType === "audio") {
+      meta.textContent = "Gunakan kontrol pemutar audio di bawah.";
+      stage.innerHTML = '<audio class="file-preview-audio" controls preload="metadata" src="' + esc(objectUrl) + '">Browser tidak mendukung pemutaran audio ini.</audio>';
+    } else if (previewType === "text") {
+      const textContent = await blob.text();
+      if (requestId !== state.previewRequestId || !stage.isConnected) return;
+      const maxChars = 500000;
+      stage.innerHTML = '<pre class="file-preview-text">' + esc(textContent.slice(0, maxChars)) + '</pre>';
+      meta.textContent = textContent.length > maxChars
+        ? "Tampilan teks dibatasi pada 500.000 karakter pertama agar halaman tetap responsif."
+        : "Pratinjau teks · " + textContent.length.toLocaleString("id-ID") + " karakter.";
+    }
+  } catch (error) {
+    if (requestId === state.previewRequestId && stage.isConnected) {
+      stage.innerHTML = '<div class="file-preview-unsupported"><strong>File gagal dimuat untuk preview.</strong><p>' + esc(error.message || "Periksa akses penyimpanan dan coba lagi.") + '</p><p>File asli tidak diubah. Kamu masih bisa mencoba tombol Unduh file.</p></div>';
+      meta.textContent = "Preview gagal dimuat.";
+    }
+  }
+}
+
+
 async function deleteContent(contentGroupId) {
   const group = groupContentAssets().find((asset) => asset.content_group_id === contentGroupId);
   if (!group) return toast("Content tidak ditemukan.", "error");
@@ -1218,6 +1310,7 @@ async function restoreEncryptedBackup(file) {
 }
 
 function closeModal() {
+  closeFilePreview();
   $("#modal-root").innerHTML = "";
   state.selectedTaskId = null;
 }
@@ -1340,6 +1433,19 @@ document.addEventListener("click", async (event) => {
     picker.addEventListener("change", () => restoreEncryptedBackup(picker.files && picker.files[0]));
     picker.click(); return;
   }
+  const previewButton = event.target.closest(".preview-file");
+  if (previewButton) { await previewFile(previewButton.dataset.id, previewButton.dataset.kind || "attachment"); return; }
+  const previewDownload = event.target.closest(".file-preview-download");
+  if (previewDownload) {
+    const item = previewDownload.dataset.kind === "content"
+      ? state.contentAssets.find((asset) => asset.id === previewDownload.dataset.id)
+      : state.attachments.find((asset) => asset.id === previewDownload.dataset.id);
+    if (!item) return toast("File tidak ditemukan.", "error");
+    try { await downloadStoredFile(item); }
+    catch (error) { toast("File tidak dapat diunduh: " + (error.message || "kesalahan tidak diketahui"), "error"); }
+    return;
+  }
+  if (event.target.closest(".file-preview-close") || event.target.matches("[data-preview-backdrop]")) { closeFilePreview(); return; }
   const download = event.target.closest(".download-file");
   if (download) { await downloadFile(download.dataset.id); return; }
   const contentDownload = event.target.closest(".download-content");
