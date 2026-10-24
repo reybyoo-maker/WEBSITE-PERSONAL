@@ -22,6 +22,7 @@ const savedInstagramPosts = (() => {
         id: String(post.id || ("ig-" + Math.random().toString(36).slice(2))),
         url: String(post.url || ""),
         shortcode: String(post.shortcode || ""),
+        image_url: String(post.image_url || post.thumbnail_url || ""),
         caption: String(post.caption || ""),
         timestamp: post.timestamp || null,
         likes: Number.isFinite(Number(post.likes)) && post.likes !== null && post.likes !== "" ? Number(post.likes) : null,
@@ -389,8 +390,12 @@ function renderInstagramReport() {
       : post.fetched_at ? "Diperbarui " + fmtDateTime(post.fetched_at)
       : "Data bisa diedit";
     const rowTotal = instagramKnownTotal(post);
+    const coverMarkup = '<a class="ig-cover-link" href="' + esc(post.url) + '" target="_blank" rel="noopener noreferrer" aria-label="Buka postingan Instagram">' +
+      '<span class="ig-cover-frame"><span class="ig-cover-fallback" aria-hidden="true">IG</span>' +
+      (post.image_url ? '<img class="ig-cover-image" src="' + esc(post.image_url) + '" alt="Cover postingan Instagram" loading="lazy" referrerpolicy="no-referrer">' : '') +
+      '</span></a>';
     const metricInput = (field, label) => '<input class="ig-metric-edit" data-post-id="' + esc(post.id) + '" data-field="' + field + '" type="number" min="0" step="1" inputmode="numeric" aria-label="' + label + '" value="' + (post[field] === null || post[field] === undefined ? "" : esc(post[field])) + '" placeholder="—">';
-    return '<tr data-instagram-post-row="' + esc(post.id) + '"><td><div class="ig-post-title">' +
+    return '<tr data-instagram-post-row="' + esc(post.id) + '"><td class="ig-cover-cell">' + coverMarkup + '</td><td><div class="ig-post-title">' +
       esc((post.caption || "Post Instagram").slice(0, 160)) + '</div><div class="ig-post-meta"><a href="' + esc(post.url) + '" target="_blank" rel="noopener noreferrer">Buka postingan ↗</a>' +
       (post.timestamp ? ' · ' + esc(fmtDateTime(post.timestamp)) : '') +
       '</div><div class="ig-row-status ' + (post.lookup_status === "error" ? "is-error" : post.lookup_status === "loading" ? "is-loading" : "") + '">' + esc(status) + '</div>' +
@@ -415,7 +420,7 @@ function renderInstagramReport() {
       instagramMetricCard("Total engagement", posts.length ? totalEngagement : null, "Like + komentar + share + repost") +
     '</div>' +
     '<section class="panel ig-posts-panel"><div class="panel-header"><div><h3>Tabel engagement per postingan</h3><p>' + (posts.length ? 'Kamu bisa mengedit kolom angka. Total dan ringkasan akan dihitung ulang otomatis.' : 'Tambahkan link pertama untuk mulai membuat report.') + '</p></div><span class="role-badge">' + formatMetric(posts.length) + ' post</span></div>' +
-    (posts.length ? '<div class="ig-report-table-wrap"><table class="ig-report-table ig-editable-table"><thead><tr><th>Postingan</th><th>Like</th><th>Komentar</th><th>Share</th><th>Repost</th><th>Total engagement</th><th>Aksi</th></tr></thead><tbody>' + tableRows + '</tbody></table></div><p class="ig-report-footnote">Tanda — berarti angka belum tersedia. Share/repost dapat tidak diberikan oleh Instagram publik; masukkan sendiri di kolomnya bila kamu memiliki angkanya. Total engagement menjumlahkan nilai yang terisi.</p>' :
+    (posts.length ? '<div class="ig-report-table-wrap"><table class="ig-report-table ig-editable-table"><thead><tr><th>Cover</th><th>Postingan</th><th>Like</th><th>Komentar</th><th>Share</th><th>Repost</th><th>Total engagement</th><th>Aksi</th></tr></thead><tbody>' + tableRows + '</tbody></table></div><p class="ig-report-footnote">Tanda — berarti angka belum tersedia. Share/repost dapat tidak diberikan oleh Instagram publik; masukkan sendiri di kolomnya bila kamu memiliki angkanya. Total engagement menjumlahkan nilai yang terisi.</p>' :
     '<div class="ig-empty"><strong>Belum ada link postingan.</strong><p>Tempel link Instagram di atas, lalu tekan Tambah & baca engagement.</p></div>') +
     '</section><p class="ig-report-footnote">Maksimal 30 postingan per browser. Link dan angka yang diinput disimpan di browser ini, tidak otomatis tersinkron antarperangkat atau pengguna tim.</p>';
 }
@@ -461,6 +466,7 @@ async function readInstagramPostMetrics(postId) {
       }
     }
     current.caption = String(result.caption || current.caption || "Post Instagram");
+    current.image_url = String(result.image_url || result.thumbnail_url || current.image_url || "");
     current.timestamp = result.timestamp || current.timestamp || null;
     current.lookup_status = "ready";
     current.lookup_error = result.note || "";
