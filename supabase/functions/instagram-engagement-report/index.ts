@@ -120,7 +120,7 @@ Deno.serve(async (req: Request) => {
     .replace(/\\u0026/g, "&").replace(/\\u003c/g, "<").replace(/\\u003e/g, ">").replace(/\\\\n/g, " ");
 
   const readMeta = (html: string, key: string): string => {
-    const tagPattern = new RegExp("<meta\\b(?=[^>]*(?:property|name)=[\\"']" + key + "[\\"'])[^>]*>", "i");
+    const tagPattern = new RegExp('<meta\\b(?=[^>]*(?:property|name)=["\']' + key + '["\'])[^>]*>', "i");
     const tag = html.match(tagPattern)?.[0];
     if (!tag) return "";
     const content = tag.match(/\bcontent=["']([^"']*)["']/i);
