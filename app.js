@@ -391,10 +391,10 @@ function renderInstagramReport() {
       : post.fetched_at ? "Diperbarui " + fmtDateTime(post.fetched_at)
       : "Data bisa diedit";
     const rowTotal = instagramKnownTotal(post);
-    const coverMarkup = '<button type="button" class="ig-cover-link ig-post-preview" data-id="' + esc(post.id) + '" title="Lihat pratinjau postingan" aria-label="Lihat pratinjau postingan Instagram">' +
-      '<span class="ig-cover-frame"><span class="ig-cover-fallback" aria-hidden="true">' + (post.image_url ? 'IG' : 'Lihat post') + '</span>' +
-      (post.image_url ? '<img class="ig-cover-image" src="' + esc(post.image_url) + '" alt="Cover postingan Instagram" loading="lazy" referrerpolicy="no-referrer">' : '') +
-      '</span></button>';
+    const coverMarkup = '<div class="ig-cover-static" title="' + (post.image_url ? 'Cover postingan' : 'Cover tidak tersedia dari data publik Instagram') + '">' +
+      '<span class="ig-cover-frame"><span class="ig-cover-fallback" aria-hidden="true">' + (post.image_url ? 'Memuat cover…' : 'Cover belum tersedia') + '</span>' +
+      (post.image_url ? '<img class="ig-cover-image" src="' + esc(post.image_url) + '" alt="Cover postingan Instagram" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove();">' : '') +
+      '</span></div>';
     const metricInput = (field, label) => '<input class="ig-metric-edit" data-post-id="' + esc(post.id) + '" data-field="' + field + '" type="number" min="0" step="1" inputmode="numeric" aria-label="' + label + '" value="' + (post[field] === null || post[field] === undefined ? "" : esc(post[field])) + '" placeholder="—">';
     return '<tr data-instagram-post-row="' + esc(post.id) + '"><td class="ig-cover-cell">' + coverMarkup + '</td><td><div class="ig-post-title">' +
       esc((post.caption || "Post Instagram").slice(0, 160)) + '</div><div class="ig-post-meta"><a href="' + esc(post.url) + '" target="_blank" rel="noopener noreferrer">Buka postingan ↗</a>' +
@@ -1714,8 +1714,6 @@ document.addEventListener("click", async (event) => {
   const nav = event.target.closest("[data-view]");
   if (nav) { changeView(nav.dataset.view); return; }
   if (event.target.closest("[data-instagram-refresh-all]")) { await refreshInstagramPosts(); return; }
-  const instagramPreview = event.target.closest(".ig-post-preview");
-  if (instagramPreview) { openInstagramPostPreview(instagramPreview.dataset.id); return; }
   const refreshInstagramOne = event.target.closest(".ig-refresh-one");
   if (refreshInstagramOne) { await refreshInstagramPosts([refreshInstagramOne.dataset.id]); return; }
   const deleteInstagramPost = event.target.closest(".ig-delete-post");
