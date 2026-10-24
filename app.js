@@ -387,6 +387,7 @@ function renderInstagramReport() {
   const tableRows = posts.map((post) => {
     const status = post.lookup_status === "loading" ? "Membaca metrik…"
       : post.lookup_status === "error" ? "Auto-read belum berhasil"
+      : post.lookup_status === "partial" ? "Cover terbaca; metrik terbatas"
       : post.fetched_at ? "Diperbarui " + fmtDateTime(post.fetched_at)
       : "Data bisa diedit";
     const rowTotal = instagramKnownTotal(post);
@@ -398,7 +399,7 @@ function renderInstagramReport() {
     return '<tr data-instagram-post-row="' + esc(post.id) + '"><td class="ig-cover-cell">' + coverMarkup + '</td><td><div class="ig-post-title">' +
       esc((post.caption || "Post Instagram").slice(0, 160)) + '</div><div class="ig-post-meta"><a href="' + esc(post.url) + '" target="_blank" rel="noopener noreferrer">Buka postingan ↗</a>' +
       (post.timestamp ? ' · ' + esc(fmtDateTime(post.timestamp)) : '') +
-      '</div><div class="ig-row-status ' + (post.lookup_status === "error" ? "is-error" : post.lookup_status === "loading" ? "is-loading" : "") + '">' + esc(status) + '</div>' +
+      '</div><div class="ig-row-status ' + (post.lookup_status === "error" ? "is-error" : post.lookup_status === "loading" ? "is-loading" : post.lookup_status === "partial" ? "is-partial" : "") + '">' + esc(status) + '</div>' +
       (post.lookup_error ? '<p class="ig-row-error">' + esc(post.lookup_error) + '</p>' : '') +
       '</td><td>' + metricInput("likes", "Jumlah like") + '</td><td>' + metricInput("comments", "Jumlah komentar") +
       '</td><td>' + metricInput("shares", "Jumlah share") + '</td><td>' + metricInput("reposts", "Jumlah repost") +
@@ -459,17 +460,19 @@ async function readInstagramPostMetrics(postId) {
     const result = await requestInstagramPostMetrics(post.url);
     const current = report.posts.find((item) => item.id === postId);
     if (!current) return;
+    let metricReturned = false;
     for (const field of ["likes", "comments", "shares", "reposts"]) {
       const value = result[field];
       if (value !== null && value !== undefined && value !== "" && Number.isFinite(Number(value)) && Number(value) >= 0) {
         current[field] = Number(value);
+        metricReturned = true;
       }
     }
     current.caption = String(result.caption || current.caption || "Post Instagram");
     current.image_url = String(result.image_url || result.thumbnail_url || current.image_url || "");
     current.timestamp = result.timestamp || current.timestamp || null;
-    current.lookup_status = "ready";
-    current.lookup_error = result.note || "";
+    current.lookup_status = metricReturned ? "ready" : current.image_url ? "partial" : "error";
+    current.lookup_error = result.note || (metricReturned ? "" : "Instagram belum memberikan angka engagement; kolom tetap bisa diisi manual.");
     current.fetched_at = result.fetched_at || new Date().toISOString();
     report.lastFetched = current.fetched_at;
     report.error = "";
