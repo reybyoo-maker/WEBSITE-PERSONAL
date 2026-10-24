@@ -851,3 +851,26 @@ select,
   .ig-metric-card strong { font-size:24px; }
   .ig-report-table th, .ig-report-table td { padding:11px; }
 }
+
+
+/* Username-only Instagram lookup form */
+.ig-lookup-form {
+  display:flex; align-items:flex-end; gap:12px; margin:0 0 18px; padding:16px;
+  background:#fff; border:1px solid #e1e8f2; border-radius:15px;
+  box-shadow:0 7px 22px rgba(31,55,88,.03);
+}
+.ig-lookup-form label {
+  display:flex; flex:1 1 300px; min-width:0; flex-direction:column; gap:7px;
+  color:#52627a; font-size:11px; font-weight:750;
+}
+.ig-lookup-form input {
+  width:100%; min-height:43px; padding:11px 13px; border:1px solid #d9e2ee;
+  border-radius:10px; background:#fbfcff; color:#24364f; font:inherit; font-size:13px;
+}
+.ig-lookup-form input:focus { outline:0; border-color:#719ef3; box-shadow:0 0 0 3px rgba(36,104,232,.1); }
+.ig-lookup-form .btn { min-height:43px; white-space:nowrap; }
+@media(max-width:640px) {
+  .ig-lookup-form { align-items:stretch; flex-direction:column; padding:13px; }
+  .ig-lookup-form label { flex-basis:auto; }
+  .ig-lookup-form .btn { width:100%; }
+}

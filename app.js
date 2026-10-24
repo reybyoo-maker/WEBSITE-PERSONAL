@@ -13,10 +13,14 @@ const supabase = configured ? createClient(config.supabaseUrl, config.supabaseAn
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
+const savedInstagramUsername = (() => {
+  try { return localStorage.getItem("ruang-kerja-instagram-username") || ""; }
+  catch { return ""; }
+})();
 const state = {
   user: null, profile: null, profiles: [], tasks: [], comments: [], attachments: [], contentAssets: [], activities: [], visitSchedules: [],
   view: "dashboard", selectedTaskId: null, loading: false, googleDriveConnected: false, previewObjectUrl: null, previewRequestId: 0,
-  instagramReport: { loading: false, error: "", posts: [], summary: null, account: null, lastFetched: null, lastAttemptAt: 0 }
+  instagramReport: { username: savedInstagramUsername, loading: false, error: "", posts: [], summary: null, account: null, lastFetched: null, lastAttemptAt: 0 }
 };
 const STATUS = {
   todo: "Belum dimulai",
@@ -344,17 +348,18 @@ function renderInstagramReport() {
       formatMetric(interactions) + '</strong></td></tr>';
   }).join("");
   const loadingText = report.loading
-    ? '<div class="ig-loading"><span class="spinner"></span> Mengambil statistik Instagram terbaru dari Meta…</div>' : "";
+    ? '<div class="ig-loading"><span class="spinner"></span> Membaca postingan publik Instagram…</div>' : "";
   const errorText = report.error
-    ? '<div class="ig-setup-notice"><strong>Data Instagram belum berhasil dimuat.</strong><p>' + esc(report.error) + '</p><p>Agar data terisi otomatis, Edge Function perlu aktif dan secret akun Meta sudah dipasang di Supabase. Token tidak disimpan di browser atau di repo.</p></div>' : "";
+    ? '<div class="ig-setup-notice"><strong>Data Instagram belum berhasil dimuat.</strong><p>' + esc(report.error) + '</p><p>Pencarian username memakai data publik tanpa Meta access token. Instagram bisa membatasi permintaan atau meminta login. Share dan repost tidak dijamin tersedia secara publik.</p></div>' : "";
   const accountLabel = report.account && report.account.username
     ? '@' + report.account.username
-    : "Akun belum terhubung";
+    : report.username ? '@' + report.username : "Masukkan username Instagram";
   const postsSummary = posts.length
-    ? posts.length + ' post terbaru berhasil dibaca' + (summary.total_available_posts ? ' · total post di akun: ' + formatMetric(summary.total_available_posts) : '')
-    : "Data diambil dari Instagram Graph API; angka tidak diinput secara manual.";
-  return '<div class="page-heading"><div><h2>Instagram Engagement Report</h2><p>Report otomatis per postingan untuk like, komentar, share, dan repost.</p></div><div class="heading-actions"><button class="btn btn-primary" data-instagram-refresh' + (report.loading ? ' disabled' : '') + '>' + (report.loading ? 'Sinkronisasi…' : '↻ Sinkronkan sekarang') + '</button></div></div>' +
-    '<div class="ig-account-strip"><div><span class="ig-strip-label">Akun Instagram</span><strong>' + esc(accountLabel) + '</strong><small>Update terakhir: ' + esc(updated) + '</small></div><span class="role-badge">' + (report.loading ? 'Sinkronisasi' : report.error ? 'Belum tersambung' : report.lastFetched ? 'Terhubung' : 'Menunggu data') + '</span></div>' +
+    ? posts.length + ' postingan publik berhasil dibaca' + (summary.total_available_posts ? ' · total postingan pada profil: ' + formatMetric(summary.total_available_posts) : '')
+    : "Masukkan username publik untuk membaca metrik yang tersedia.";
+  return '<div class="page-heading"><div><h2>Instagram Engagement Report</h2><p>Masukkan username untuk melihat engagement publik per postingan.</p></div></div>' +
+    '<form class="ig-lookup-form" id="instagram-lookup-form"><label for="instagram-username">Username Instagram<input id="instagram-username" name="username" type="text" inputmode="text" autocomplete="off" autocapitalize="none" spellcheck="false" maxlength="30" placeholder="@contohbisnis" value="' + esc(report.username || '') + '" required></label><button class="btn btn-primary" type="submit"' + (report.loading ? ' disabled' : '') + '>' + (report.loading ? 'Mencari…' : 'Lihat engagement') + '</button></form>' +
+    '<div class="ig-account-strip"><div><span class="ig-strip-label">Akun Instagram</span><strong>' + esc(accountLabel) + '</strong><small>Update terakhir: ' + esc(updated) + '</small></div><span class="role-badge">' + (report.loading ? 'Memuat data' : report.error ? 'Tidak tersedia' : report.lastFetched ? 'Data dimuat' : 'Menunggu username') + '</span></div>' +
     loadingText + errorText +
     '<div class="ig-metric-grid">' +
       instagramMetricCard("Total likes", summary.likes_available ? summary.likes : null, "Akumulasi angka tersedia dari post yang ditarik") +
@@ -362,22 +367,44 @@ function renderInstagramReport() {
       instagramMetricCard("Total share", summary.shares_available ? summary.shares : null, "Angka yang disediakan Meta") +
       instagramMetricCard("Total repost", summary.reposts_available ? summary.reposts : null, "Angka yang disediakan Meta") +
     '</div>' +
-    '<section class="panel ig-posts-panel"><div class="panel-header"><div><h3>Performa per postingan</h3><p>' + esc(postsSummary) + '</p></div><span class="role-badge">' + formatMetric(posts.length) + ' post</span></div>' +
-    (posts.length ? '<div class="ig-report-table-wrap"><table class="ig-report-table"><thead><tr><th>Postingan</th><th>Like</th><th>Komentar</th><th>Share</th><th>Repost</th><th>Interaksi terukur</th></tr></thead><tbody>' + postRows + '</tbody></table></div><p class="ig-report-footnote">Tanda — berarti metrik tidak tersedia atau tidak diberikan oleh izin/jenis konten di Meta API; bukan berarti nilainya nol. Ringkasan hanya menjumlahkan angka yang tersedia pada post yang ditampilkan.</p>' : (!report.loading && !report.error ? '<div class="ig-empty"><strong>Belum ada data postingan.</strong><p>Tekan Sinkronkan sekarang untuk mengambil data dari akun yang telah dikonfigurasi.</p></div>' : '')) +
-    '</section><p class="ig-report-footnote">Panel otomatis mencoba sinkron saat dibuka dan menyegarkan data saat tombol sinkronisasi ditekan. Hanya konten yang bisa diakses oleh akun Meta yang terhubung akan muncul.</p>';
+    '<section class="panel ig-posts-panel"><div class="panel-header"><div><h3>Engagement per postingan</h3><p>' + esc(postsSummary) + '</p></div><span class="role-badge">' + formatMetric(posts.length) + ' post</span></div>' +
+    (posts.length ? '<div class="ig-report-table-wrap"><table class="ig-report-table"><thead><tr><th>Postingan</th><th>Like</th><th>Komentar</th><th>Share</th><th>Repost</th><th>Interaksi terukur</th></tr></thead><tbody>' + postRows + '</tbody></table></div><p class="ig-report-footnote">Like dan komentar yang terlihat bersumber dari profil publik. Share dan repost umumnya tidak dibuka sebagai angka publik untuk username sembarang, sehingga ditampilkan — jika tidak tersedia.</p>' : (!report.loading && !report.error ? '<div class="ig-empty"><strong>Masukkan username untuk mulai.</strong><p>Gunakan username akun publik, tanpa perlu memasukkan password Instagram.</p></div>' : '')) +
+    '</section><p class="ig-report-footnote">Akses data publik bisa dibatasi Instagram sewaktu-waktu. Panel tidak meminta password, kode OTP, atau cookie Instagram.</p>';
 }
 
 
-async function loadInstagramReport(force = false) {
+async function loadInstagramReport(force = false, usernameOverride = "") {
   if (!supabase || !state.user || state.instagramReport.loading) return;
   const report = state.instagramReport;
-  if (!force && report.lastAttemptAt && Date.now() - report.lastAttemptAt < 5 * 60 * 1000) return;
+  const rawUsername = String(usernameOverride || $("#instagram-username")?.value || report.username || "").trim();
+  const username = rawUsername.replace(/^@+/, "").replace(/\/+$/, "");
+  if (!username) {
+    report.error = "";
+    report.loading = false;
+    if (state.view === "instagram") $("#page-content").innerHTML = renderInstagramReport();
+    return;
+  }
+  if (!/^[A-Za-z0-9._]{1,30}$/.test(username)) {
+    report.error = "Username tidak valid. Masukkan username Instagram saja, tanpa URL atau spasi.";
+    report.loading = false;
+    if (state.view === "instagram") $("#page-content").innerHTML = renderInstagramReport();
+    return;
+  }
+  if (!force && report.username === username && report.lastAttemptAt && Date.now() - report.lastAttemptAt < 5 * 60 * 1000) return;
+  if (report.username !== username) {
+    report.posts = [];
+    report.summary = null;
+    report.account = null;
+    report.lastFetched = null;
+  }
+  report.username = username;
+  try { localStorage.setItem("ruang-kerja-instagram-username", username); } catch { /* storage may be disabled */ }
   report.loading = true;
   report.error = "";
   report.lastAttemptAt = Date.now();
   if (state.view === "instagram") $("#page-content").innerHTML = renderInstagramReport();
   try {
-    const { data, error } = await supabase.functions.invoke("instagram-engagement-report", { body: {} });
+    const { data, error } = await supabase.functions.invoke("instagram-engagement-report", { body: { username } });
     if (error) {
       let message = error.message || "Edge Function belum bisa dihubungi.";
       try {
@@ -387,7 +414,7 @@ async function loadInstagramReport(force = false) {
         }
       } catch { /* fallback to the function transport message */ }
       if (/404|not found|failed to send a request/i.test(message)) {
-        message = "Backend Instagram report belum aktif di Supabase. Deploy fungsi instagram-engagement-report terlebih dahulu.";
+        message = "Endpoint pencarian username belum aktif. Backend harus dideploy satu kali agar website bisa mengambil data publik Instagram.";
       }
       throw new Error(message);
     }
@@ -419,7 +446,7 @@ function renderPage() {
   else if (state.view === "visits") $("#page-content").innerHTML = renderVisits();
   else $("#page-content").innerHTML = renderActivity();
   initializeFilePickers($("#page-content"));
-  if (state.view === "instagram" && !state.instagramReport.loading &&
+  if (state.view === "instagram" && state.instagramReport.username && !state.instagramReport.loading &&
       (!state.instagramReport.lastAttemptAt || Date.now() - state.instagramReport.lastAttemptAt > 5 * 60 * 1000)) {
     void loadInstagramReport();
   }
@@ -1546,7 +1573,7 @@ $("#login-form").addEventListener("submit", async (event) => {
 document.addEventListener("click", async (event) => {
   const nav = event.target.closest("[data-view]");
   if (nav) { changeView(nav.dataset.view); return; }
-  if (event.target.closest("[data-instagram-refresh]")) { await loadInstagramReport(true); return; }
+  if (event.target.closest("[data-instagram-refresh]")) { await loadInstagramReport(true, $("#instagram-username")?.value || ""); return; }
   if (event.target.closest("#test-telegram-button")) { toast("Mengirim tes notifikasi Telegram…", "success"); const sent = await notifyTelegram("task_status", "Tes notifikasi Telegram", "Tes koneksi", "Pesan percobaan dari portal Ruang Kerja."); if (sent) toast("Tes berhasil dikirim ke Telegram.", "success"); return; }
   if (event.target.closest("#new-task-top") || event.target.closest("[data-create-task]")) { openCreateModal(); return; }
   if (event.target.closest("[data-connect-google-drive]")) { await connectGoogleDrive(); return; }
@@ -1619,7 +1646,11 @@ document.addEventListener("change", async (event) => {
   if (event.target.id === "task-status-filter" || event.target.id === "task-priority-filter") applyTaskFilters();
 });
 document.addEventListener("submit", async (event) => {
-  if (event.target.id === "create-task-form") { event.preventDefault(); await createTask(event.target); }
+  if (event.target.id === "instagram-lookup-form") {
+    event.preventDefault();
+    await loadInstagramReport(true, new FormData(event.target).get("username") || "");
+  }
+  else if (event.target.id === "create-task-form") { event.preventDefault(); await createTask(event.target); }
   else if (event.target.id === "revision-form") { event.preventDefault(); await sendRevision(event.target); }
   else if (event.target.id === "comment-form") { event.preventDefault(); await addComment(event.target); }
   else if (event.target.id === "upload-form") { event.preventDefault(); await uploadTaskFile(event.target); }
