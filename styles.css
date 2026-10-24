@@ -719,3 +719,12 @@ select,
 .task-attachment-group .file-row{border-bottom:1px solid #eef1f5}
 .task-attachment-group .file-row:last-child{border-bottom:0}
 .task-attachment-upload-section{padding:12px;border:1px solid var(--line,#e5e9ef);border-radius:10px;background:#fbfcfe}
+
+
+/* Approval cards deliberately expose only completed-work result attachments. */
+.approval-result-files{margin:12px 0;padding:11px 12px;border:1px solid var(--line,#e5e9ef);border-radius:10px;background:#fbfcfe}
+.approval-result-files>strong{display:block;margin-bottom:8px;font-size:11px;color:#34445b}
+.approval-result-file{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 0;border-top:1px solid #e9edf3;font-size:11px}
+.approval-result-file span{overflow-wrap:anywhere;min-width:0}
+.approval-result-missing{font-size:11px;margin:10px 0;padding:9px 11px;border-radius:8px;background:#fff7ed;color:#9a3412}
+@media(max-width:640px){.approval-result-file{align-items:flex-start;flex-direction:column}.approval-result-file .btn{width:100%}}
