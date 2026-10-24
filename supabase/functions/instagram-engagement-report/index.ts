@@ -46,11 +46,9 @@ Deno.serve(async (req: Request) => {
   const canonicalUrl = "https://www.instagram.com/" + mediaType + "/" + encodeURIComponent(shortcode) + "/";
 
   const headers = {
-    "Accept": "application/json, text/plain, */*",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
-    "X-IG-App-ID": "936619743392459",
-    "X-Requested-With": "XMLHttpRequest",
-    "Referer": canonicalUrl,
   };
   const safeFetch = async (url: string) => await fetch(url, { headers, signal: AbortSignal.timeout(12000) });
   const extractItem = (root: Record<string, unknown>): Record<string, unknown> | null => {
@@ -173,23 +171,10 @@ Deno.serve(async (req: Request) => {
     let item: Record<string, unknown> | null = null;
     let coverImageUrl: string | null = null;
     let blocked = false;
-    const detailUrl = new URL("https://www.instagram.com/api/v1/media/shortcode/");
-    detailUrl.searchParams.set("shortcode", shortcode);
-    try {
-      const detailResponse = await safeFetch(detailUrl.toString());
-      if (detailResponse.ok) {
-        item = extractItem(await detailResponse.json() as Record<string, unknown>);
-        if (item) coverImageUrl = imageUrlFromItem(item);
-      }
-      else if ([401, 403, 429].includes(detailResponse.status)) blocked = true;
-    } catch { /* fallback to post page */ }
-
     if (!item) {
-      const queryUrl = new URL(canonicalUrl);
-      queryUrl.searchParams.set("__a", "1");
-      queryUrl.searchParams.set("__d", "dis");
-      // Try the normal public page first, then the legacy JSON-style endpoint.
-      for (const pageAddress of [canonicalUrl, queryUrl.toString()]) {
+      const embedUrl = canonicalUrl.replace(/\/$/, "") + "/embed/captioned/";
+      // Inspect publicly accessible web pages only: the post page and its public embed.
+      for (const pageAddress of [canonicalUrl, embedUrl]) {
         if (item) break;
         try {
           const pageResponse = await safeFetch(pageAddress);
@@ -238,16 +223,16 @@ Deno.serve(async (req: Request) => {
             }
           }
         } catch (error) {
-          console.warn("Instagram page parse attempt failed", {
+          console.warn("Public webpage parse attempt failed", {
             shortcode,
-            endpoint: pageAddress === canonicalUrl ? "public_page" : "legacy_endpoint",
+            endpoint: pageAddress === canonicalUrl ? "public_page" : "public_embed_page",
             message: (error as Error)?.message || "unknown",
           });
         }
       }
     }
     if (!item) {
-      console.warn("Instagram public metrics partially or not available", {
+      console.warn("Public webpage metrics partially or not available", {
         shortcode,
         accessLimited: blocked,
         hasCover: Boolean(coverImageUrl),
@@ -255,10 +240,10 @@ Deno.serve(async (req: Request) => {
         hasComments: metaComments !== null,
       });
       const note = blocked
-        ? "Instagram membatasi akses publik. Cover atau sebagian angka mungkin tersedia, tetapi metrik lengkap tidak dapat dibaca."
+        ? "Halaman web publik membatasi pembacaan. Cover atau sebagian angka mungkin tersedia, tetapi metrik lengkap tidak ditemukan."
         : (coverImageUrl || metaLikes !== null || metaComments !== null)
           ? "Data postingan hanya terbaca sebagian dari metadata publik. Share dan repost tidak tersedia dari respons ini."
-          : "Instagram tidak membuka metadata publik untuk pembacaan otomatis. Pratinjau postingan bisa dicoba melalui cover; angka metrik yang tidak tersedia perlu diisi manual atau diakses lewat API resmi yang sesuai.";
+          : "Halaman web publik tidak menampilkan metadata engagement yang bisa dibaca otomatis. Angka yang tidak tersedia dibiarkan kosong agar tidak menjadi tebakan.";
       return json({
         ok: true,
         source: "instagram_public_post",
