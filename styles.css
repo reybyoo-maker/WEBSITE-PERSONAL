@@ -805,3 +805,49 @@ select,
   .pptx-slide-indicator { min-width:86px; font-size:11px; }
   .pptx-slide-content { min-width:100%; }
 }
+
+
+/* Instagram engagement report panel */
+.ig-account-strip {
+  display:flex; align-items:center; justify-content:space-between; gap:15px;
+  padding:16px 19px; margin-bottom:18px; border:1px solid #e1e8f2; border-radius:16px;
+  background:linear-gradient(110deg,#fff 0%,#f7f9ff 100%);
+}
+.ig-account-strip > div { display:flex; min-width:0; flex-direction:column; gap:4px; }
+.ig-strip-label { color:#7a879b; font-size:10px; text-transform:uppercase; letter-spacing:.08em; font-weight:800; }
+.ig-account-strip strong { color:#213653; font-size:15px; overflow-wrap:anywhere; }
+.ig-account-strip small { color:#7b8799; font-size:11px; }
+.ig-metric-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:14px; margin:0 0 20px; }
+.ig-metric-card {
+  display:flex; flex-direction:column; gap:9px; min-width:0; min-height:135px; padding:18px;
+  background:#fff; border:1px solid #e2e9f2; border-radius:15px; box-shadow:0 7px 22px rgba(31,55,88,.035);
+}
+.ig-metric-card span { color:#66758c; font-size:12px; font-weight:650; }
+.ig-metric-card strong { color:#172b50; font-size:29px; font-variant-numeric:tabular-nums; line-height:1.1; overflow-wrap:anywhere; }
+.ig-metric-card small { color:#8a96a8; font-size:10px; line-height:1.5; }
+.ig-posts-panel { overflow:hidden; }
+.ig-report-table-wrap { width:100%; overflow-x:auto; }
+.ig-report-table { border-collapse:collapse; width:100%; min-width:850px; }
+.ig-report-table th, .ig-report-table td { padding:13px 15px; border-bottom:1px solid #eaf0f6; text-align:left; vertical-align:top; font-size:11px; }
+.ig-report-table th { background:#f6f8fc; color:#7d8ca2; text-transform:uppercase; letter-spacing:.05em; font-size:9px; white-space:nowrap; }
+.ig-report-table td:not(:first-child) { font-variant-numeric:tabular-nums; white-space:nowrap; color:#344761; }
+.ig-post-title { color:#253852; font-weight:750; line-height:1.55; white-space:normal; min-width:220px; max-width:440px; overflow-wrap:anywhere; }
+.ig-post-meta { color:#8592a6; font-size:10px; margin-top:6px; line-height:1.6; }
+.ig-post-meta a { color:#2468e8; text-decoration:none; font-weight:700; }
+.ig-post-meta a:hover { text-decoration:underline; }
+.ig-report-footnote { padding:0 17px 15px; margin:0; color:#8995a7; font-size:10px; line-height:1.7; }
+.ig-setup-notice { margin:14px 0; padding:15px 17px; border:1px solid #f2d8ae; border-radius:13px; background:#fff9ef; color:#8a4b0b; }
+.ig-setup-notice strong { display:block; color:#78430e; font-size:12px; }
+.ig-setup-notice p { margin:7px 0 0; color:#8a5e2d; font-size:11px; line-height:1.65; overflow-wrap:anywhere; }
+.ig-loading { display:flex; align-items:center; gap:10px; margin:12px 0 17px; padding:13px 15px; background:#f8faff; border:1px solid #e2e9f2; border-radius:12px; color:#52627a; font-size:12px; }
+.ig-empty { padding:38px 18px; text-align:center; color:#30425e; }
+.ig-empty strong { font-size:13px; }
+.ig-empty p { color:#7c899c; font-size:11px; line-height:1.6; }
+@media(max-width:950px) { .ig-metric-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+@media(max-width:640px) {
+  .ig-account-strip { align-items:flex-start; flex-direction:column; padding:14px; }
+  .ig-metric-grid { gap:9px; }
+  .ig-metric-card { min-height:115px; padding:13px; }
+  .ig-metric-card strong { font-size:24px; }
+  .ig-report-table th, .ig-report-table td { padding:11px; }
+}

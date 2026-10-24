@@ -15,7 +15,8 @@ const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
 const state = {
   user: null, profile: null, profiles: [], tasks: [], comments: [], attachments: [], contentAssets: [], activities: [], visitSchedules: [],
-  view: "dashboard", selectedTaskId: null, loading: false, googleDriveConnected: false, previewObjectUrl: null, previewRequestId: 0
+  view: "dashboard", selectedTaskId: null, loading: false, googleDriveConnected: false, previewObjectUrl: null, previewRequestId: 0,
+  instagramReport: { loading: false, error: "", posts: [], summary: null, account: null, lastFetched: null, lastAttemptAt: 0 }
 };
 const STATUS = {
   todo: "Belum dimulai",
@@ -32,7 +33,7 @@ const MAX_STORAGE_FILE_SIZE = 800 * 1024 * 1024;
 const STORAGE_CHUNK_SIZE = 20 * 1024 * 1024;
 const PAGE_TITLE = {
   dashboard: "Dashboard", tasks: "Semua pekerjaan", approvals: "Approval & revisi",
-  files: "Arsip & file", content: "Content", visits: "Visit offline", activity: "Riwayat aktivitas"
+  files: "Arsip & file", content: "Content", instagram: "Instagram Engagement Report", visits: "Visit offline", activity: "Riwayat aktivitas"
 };
 
 function esc(value) {
@@ -316,6 +317,94 @@ function renderActivity() {
       return '<div class="activity-item"><div class="activity-symbol">◷</div><div class="activity-copy"><strong>' + esc(actor ? actor.display_name : "Anggota tim") + "</strong> " + esc(labels[item.action] || "melakukan aktivitas") + (task ? ' <strong>“' + esc(task.title) + '”</strong>' : "") + '<p>' + esc(note || "Aktivitas dicatat") + " · " + esc(fmtDateTime(item.created_at)) + "</p></div></div>";
     }).join("") + "</div>" : emptyState("Belum ada aktivitas", "Aktivitas pembuatan tugas dan perubahan status akan muncul di sini.")) + "</section>";
 }
+
+function formatMetric(value) {
+  if (value === null || value === undefined || value === "") return "—";
+  const number = Number(value);
+  return Number.isFinite(number) ? new Intl.NumberFormat("id-ID").format(number) : "—";
+}
+function instagramMetricCard(label, value, caption) {
+  return '<article class="ig-metric-card"><span>' + esc(label) + '</span><strong>' + formatMetric(value) + '</strong><small>' + esc(caption) + '</small></article>';
+}
+function renderInstagramReport() {
+  const report = state.instagramReport;
+  const summary = report.summary || {};
+  const posts = Array.isArray(report.posts) ? report.posts : [];
+  const updated = report.lastFetched ? fmtDateTime(report.lastFetched) : "Belum pernah sinkron";
+  const postRows = posts.map((post) => {
+    const title = String(post.caption || "").trim() || "(tanpa caption)";
+    const interactions = [post.likes, post.comments, post.shares, post.reposts]
+      .filter((value) => value !== null && value !== undefined)
+      .reduce((total, value) => total + Number(value || 0), 0);
+    return '<tr><td><div class="ig-post-title">' + esc(title.slice(0, 180)) + '</div><div class="ig-post-meta">' +
+      esc(post.media_product_type || post.media_type || "Post") + ' · ' + esc(fmtDateTime(post.timestamp)) +
+      (post.permalink ? ' · <a href="' + esc(post.permalink) + '" target="_blank" rel="noopener noreferrer">Lihat post</a>' : '') +
+      '</div></td><td>' + formatMetric(post.likes) + '</td><td>' + formatMetric(post.comments) + '</td><td>' +
+      formatMetric(post.shares) + '</td><td>' + formatMetric(post.reposts) + '</td><td><strong>' +
+      formatMetric(interactions) + '</strong></td></tr>';
+  }).join("");
+  const loadingText = report.loading
+    ? '<div class="ig-loading"><span class="spinner"></span> Mengambil statistik Instagram terbaru dari Meta…</div>' : "";
+  const errorText = report.error
+    ? '<div class="ig-setup-notice"><strong>Data Instagram belum berhasil dimuat.</strong><p>' + esc(report.error) + '</p><p>Agar data terisi otomatis, Edge Function perlu aktif dan secret akun Meta sudah dipasang di Supabase. Token tidak disimpan di browser atau di repo.</p></div>' : "";
+  const accountLabel = report.account && report.account.username
+    ? '@' + report.account.username
+    : "Akun belum terhubung";
+  const postsSummary = posts.length
+    ? posts.length + ' post terbaru berhasil dibaca' + (summary.total_available_posts ? ' · total post di akun: ' + formatMetric(summary.total_available_posts) : '')
+    : "Data diambil dari Instagram Graph API; angka tidak diinput secara manual.";
+  return '<div class="page-heading"><div><h2>Instagram Engagement Report</h2><p>Report otomatis per postingan untuk like, komentar, share, dan repost.</p></div><div class="heading-actions"><button class="btn btn-primary" data-instagram-refresh' + (report.loading ? ' disabled' : '') + '>' + (report.loading ? 'Sinkronisasi…' : '↻ Sinkronkan sekarang') + '</button></div></div>' +
+    '<div class="ig-account-strip"><div><span class="ig-strip-label">Akun Instagram</span><strong>' + esc(accountLabel) + '</strong><small>Update terakhir: ' + esc(updated) + '</small></div><span class="role-badge">' + (report.loading ? 'Sinkronisasi' : report.error ? 'Belum tersambung' : report.lastFetched ? 'Terhubung' : 'Menunggu data') + '</span></div>' +
+    loadingText + errorText +
+    '<div class="ig-metric-grid">' +
+      instagramMetricCard("Total likes", summary.likes_available ? summary.likes : null, "Akumulasi angka tersedia dari post yang ditarik") +
+      instagramMetricCard("Total komentar", summary.comments_available ? summary.comments : null, "Akumulasi angka tersedia dari post yang ditarik") +
+      instagramMetricCard("Total share", summary.shares_available ? summary.shares : null, "Angka yang disediakan Meta") +
+      instagramMetricCard("Total repost", summary.reposts_available ? summary.reposts : null, "Angka yang disediakan Meta") +
+    '</div>' +
+    '<section class="panel ig-posts-panel"><div class="panel-header"><div><h3>Performa per postingan</h3><p>' + esc(postsSummary) + '</p></div><span class="role-badge">' + formatMetric(posts.length) + ' post</span></div>' +
+    (posts.length ? '<div class="ig-report-table-wrap"><table class="ig-report-table"><thead><tr><th>Postingan</th><th>Like</th><th>Komentar</th><th>Share</th><th>Repost</th><th>Interaksi terukur</th></tr></thead><tbody>' + postRows + '</tbody></table></div><p class="ig-report-footnote">Tanda — berarti metrik tidak tersedia atau tidak diberikan oleh izin/jenis konten di Meta API; bukan berarti nilainya nol. Ringkasan hanya menjumlahkan angka yang tersedia pada post yang ditampilkan.</p>' : (!report.loading && !report.error ? '<div class="ig-empty"><strong>Belum ada data postingan.</strong><p>Tekan Sinkronkan sekarang untuk mengambil data dari akun yang telah dikonfigurasi.</p></div>' : '')) +
+    '</section><p class="ig-report-footnote">Panel otomatis mencoba sinkron saat dibuka dan menyegarkan data saat tombol sinkronisasi ditekan. Hanya konten yang bisa diakses oleh akun Meta yang terhubung akan muncul.</p>';
+}
+
+
+async function loadInstagramReport(force = false) {
+  if (!supabase || !state.user || state.instagramReport.loading) return;
+  const report = state.instagramReport;
+  if (!force && report.lastAttemptAt && Date.now() - report.lastAttemptAt < 5 * 60 * 1000) return;
+  report.loading = true;
+  report.error = "";
+  report.lastAttemptAt = Date.now();
+  if (state.view === "instagram") $("#page-content").innerHTML = renderInstagramReport();
+  try {
+    const { data, error } = await supabase.functions.invoke("instagram-engagement-report", { body: {} });
+    if (error) {
+      let message = error.message || "Edge Function belum bisa dihubungi.";
+      try {
+        if (error.context && typeof error.context.json === "function") {
+          const details = await error.context.clone().json();
+          if (details && details.error) message = details.error;
+        }
+      } catch { /* fallback to the function transport message */ }
+      if (/404|not found|failed to send a request/i.test(message)) {
+        message = "Backend Instagram report belum aktif di Supabase. Deploy fungsi instagram-engagement-report terlebih dahulu.";
+      }
+      throw new Error(message);
+    }
+    if (!data || data.error) throw new Error(data?.error || "Instagram API tidak mengembalikan data.");
+    report.posts = Array.isArray(data.posts) ? data.posts : [];
+    report.summary = data.summary || null;
+    report.account = data.account || null;
+    report.lastFetched = data.fetched_at || new Date().toISOString();
+    report.error = "";
+  } catch (error) {
+    report.error = error.message || "Gagal mengambil data Instagram.";
+  } finally {
+    report.loading = false;
+    if (state.view === "instagram") $("#page-content").innerHTML = renderInstagramReport();
+  }
+}
+
 function renderPage() {
   $("#page-title").textContent = PAGE_TITLE[state.view] || "Ruang Kerja";
   $$(".nav-item").forEach((btn) => btn.classList.toggle("active", btn.dataset.view === state.view));
@@ -326,9 +415,14 @@ function renderPage() {
   else if (state.view === "approvals") $("#page-content").innerHTML = renderApprovals();
   else if (state.view === "files") $("#page-content").innerHTML = renderFiles();
   else if (state.view === "content") $("#page-content").innerHTML = renderContent();
+  else if (state.view === "instagram") $("#page-content").innerHTML = renderInstagramReport();
   else if (state.view === "visits") $("#page-content").innerHTML = renderVisits();
   else $("#page-content").innerHTML = renderActivity();
   initializeFilePickers($("#page-content"));
+  if (state.view === "instagram" && !state.instagramReport.loading &&
+      (!state.instagramReport.lastAttemptAt || Date.now() - state.instagramReport.lastAttemptAt > 5 * 60 * 1000)) {
+    void loadInstagramReport();
+  }
 }
 
 function attachmentTypeLabel(type) {
@@ -428,6 +522,7 @@ async function enterApp(user) {
 }
 function changeView(view) {
   if (!PAGE_TITLE[view]) return;
+  if (view === "instagram") state.instagramReport.lastAttemptAt = 0;
   state.view = view;
   $("#sidebar").classList.remove("mobile-open");
   renderPage();
@@ -1451,6 +1546,7 @@ $("#login-form").addEventListener("submit", async (event) => {
 document.addEventListener("click", async (event) => {
   const nav = event.target.closest("[data-view]");
   if (nav) { changeView(nav.dataset.view); return; }
+  if (event.target.closest("[data-instagram-refresh]")) { await loadInstagramReport(true); return; }
   if (event.target.closest("#test-telegram-button")) { toast("Mengirim tes notifikasi Telegram…", "success"); const sent = await notifyTelegram("task_status", "Tes notifikasi Telegram", "Tes koneksi", "Pesan percobaan dari portal Ruang Kerja."); if (sent) toast("Tes berhasil dikirim ke Telegram.", "success"); return; }
   if (event.target.closest("#new-task-top") || event.target.closest("[data-create-task]")) { openCreateModal(); return; }
   if (event.target.closest("[data-connect-google-drive]")) { await connectGoogleDrive(); return; }
