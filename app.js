@@ -13,14 +13,32 @@ const supabase = configured ? createClient(config.supabaseUrl, config.supabaseAn
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
-const savedInstagramUsername = (() => {
-  try { return localStorage.getItem("ruang-kerja-instagram-username") || ""; }
-  catch { return ""; }
+const savedInstagramPosts = (() => {
+  try {
+    const parsed = JSON.parse(localStorage.getItem("ruang-kerja-instagram-posts") || "[]");
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((post) => post && typeof post === "object" && typeof post.url === "string")
+      .slice(0, 30).map((post) => ({
+        id: String(post.id || ("ig-" + Math.random().toString(36).slice(2))),
+        url: String(post.url || ""),
+        shortcode: String(post.shortcode || ""),
+        caption: String(post.caption || ""),
+        timestamp: post.timestamp || null,
+        likes: Number.isFinite(Number(post.likes)) && post.likes !== null && post.likes !== "" ? Number(post.likes) : null,
+        comments: Number.isFinite(Number(post.comments)) && post.comments !== null && post.comments !== "" ? Number(post.comments) : null,
+        shares: Number.isFinite(Number(post.shares)) && post.shares !== null && post.shares !== "" ? Number(post.shares) : null,
+        reposts: Number.isFinite(Number(post.reposts)) && post.reposts !== null && post.reposts !== "" ? Number(post.reposts) : null,
+        lookup_status: String(post.lookup_status || "saved"),
+        lookup_error: String(post.lookup_error || ""),
+        last_attempt_at: Number(post.last_attempt_at || 0),
+        fetched_at: post.fetched_at || null
+      }));
+  } catch { return []; }
 })();
 const state = {
   user: null, profile: null, profiles: [], tasks: [], comments: [], attachments: [], contentAssets: [], activities: [], visitSchedules: [],
   view: "dashboard", selectedTaskId: null, loading: false, googleDriveConnected: false, previewObjectUrl: null, previewRequestId: 0,
-  instagramReport: { username: savedInstagramUsername, loading: false, error: "", posts: [], summary: null, account: null, lastFetched: null, lastAttemptAt: 0 }
+  instagramReport: { loading: false, error: "", posts: savedInstagramPosts, lastFetched: null, lastAttemptAt: 0 }
 };
 const STATUS = {
   todo: "Belum dimulai",
@@ -322,6 +340,7 @@ function renderActivity() {
     }).join("") + "</div>" : emptyState("Belum ada aktivitas", "Aktivitas pembuatan tugas dan perubahan status akan muncul di sini.")) + "</section>";
 }
 
+
 function formatMetric(value) {
   if (value === null || value === undefined || value === "") return "—";
   const number = Number(value);
@@ -330,106 +349,190 @@ function formatMetric(value) {
 function instagramMetricCard(label, value, caption) {
   return '<article class="ig-metric-card"><span>' + esc(label) + '</span><strong>' + formatMetric(value) + '</strong><small>' + esc(caption) + '</small></article>';
 }
+function parseInstagramPostUrl(raw) {
+  let parsed;
+  try { parsed = new URL(String(raw || "").trim()); }
+  catch { throw new Error("Masukkan link postingan Instagram yang valid."); }
+  const host = parsed.hostname.toLowerCase().replace(/^www\./, "").replace(/^m\./, "");
+  if (host !== "instagram.com") throw new Error("Link harus berasal dari instagram.com.");
+  const match = parsed.pathname.match(/^\/(p|reel|reels|tv)\/([A-Za-z0-9_-]+)\/?/i);
+  if (!match) throw new Error("Link harus menuju postingan, Reel, atau IGTV (contoh: instagram.com/p/KODE/).");
+  const shortcode = match[2];
+  const type = match[1].toLowerCase() === "reels" ? "reel" : match[1].toLowerCase();
+  return { shortcode, url: "https://www.instagram.com/" + type + "/" + encodeURIComponent(shortcode) + "/" };
+}
+function saveInstagramPosts() {
+  try {
+    localStorage.setItem("ruang-kerja-instagram-posts", JSON.stringify(state.instagramReport.posts.slice(0, 30)));
+  } catch {
+    toast("Browser tidak bisa menyimpan tabel Instagram. Pastikan penyimpanan situs diizinkan.", "error");
+  }
+}
+function instagramKnownTotal(post) {
+  const values = [post.likes, post.comments, post.shares, post.reposts]
+    .map((value) => value === null || value === undefined || value === "" ? null : Number(value))
+    .filter((value) => value !== null && Number.isFinite(value));
+  return values.length ? values.reduce((sum, value) => sum + value, 0) : null;
+}
+function instagramSum(key) {
+  const values = state.instagramReport.posts
+    .map((post) => post[key] === null || post[key] === undefined || post[key] === "" ? null : Number(post[key]))
+    .filter((value) => value !== null && Number.isFinite(value));
+  return values.length ? values.reduce((sum, value) => sum + value, 0) : null;
+}
 function renderInstagramReport() {
   const report = state.instagramReport;
-  const summary = report.summary || {};
   const posts = Array.isArray(report.posts) ? report.posts : [];
-  const updated = report.lastFetched ? fmtDateTime(report.lastFetched) : "Belum pernah sinkron";
-  const postRows = posts.map((post) => {
-    const title = String(post.caption || "").trim() || "(tanpa caption)";
-    const interactions = [post.likes, post.comments, post.shares, post.reposts]
-      .filter((value) => value !== null && value !== undefined)
-      .reduce((total, value) => total + Number(value || 0), 0);
-    return '<tr><td><div class="ig-post-title">' + esc(title.slice(0, 180)) + '</div><div class="ig-post-meta">' +
-      esc(post.media_product_type || post.media_type || "Post") + ' · ' + esc(fmtDateTime(post.timestamp)) +
-      (post.permalink ? ' · <a href="' + esc(post.permalink) + '" target="_blank" rel="noopener noreferrer">Lihat post</a>' : '') +
-      '</div></td><td>' + formatMetric(post.likes) + '</td><td>' + formatMetric(post.comments) + '</td><td>' +
-      formatMetric(post.shares) + '</td><td>' + formatMetric(post.reposts) + '</td><td><strong>' +
-      formatMetric(interactions) + '</strong></td></tr>';
+  const tableRows = posts.map((post) => {
+    const status = post.lookup_status === "loading" ? "Membaca metrik…"
+      : post.lookup_status === "error" ? "Auto-read belum berhasil"
+      : post.fetched_at ? "Diperbarui " + fmtDateTime(post.fetched_at)
+      : "Data bisa diedit";
+    const rowTotal = instagramKnownTotal(post);
+    const metricInput = (field, label) => '<input class="ig-metric-edit" data-post-id="' + esc(post.id) + '" data-field="' + field + '" type="number" min="0" step="1" inputmode="numeric" aria-label="' + label + '" value="' + (post[field] === null || post[field] === undefined ? "" : esc(post[field])) + '" placeholder="—">';
+    return '<tr data-instagram-post-row="' + esc(post.id) + '"><td><div class="ig-post-title">' +
+      esc((post.caption || "Post Instagram").slice(0, 160)) + '</div><div class="ig-post-meta"><a href="' + esc(post.url) + '" target="_blank" rel="noopener noreferrer">Buka postingan ↗</a>' +
+      (post.timestamp ? ' · ' + esc(fmtDateTime(post.timestamp)) : '') +
+      '</div><div class="ig-row-status ' + (post.lookup_status === "error" ? "is-error" : post.lookup_status === "loading" ? "is-loading" : "") + '">' + esc(status) + '</div>' +
+      (post.lookup_error ? '<p class="ig-row-error">' + esc(post.lookup_error) + '</p>' : '') +
+      '</td><td>' + metricInput("likes", "Jumlah like") + '</td><td>' + metricInput("comments", "Jumlah komentar") +
+      '</td><td>' + metricInput("shares", "Jumlah share") + '</td><td>' + metricInput("reposts", "Jumlah repost") +
+      '</td><td class="ig-row-total"><strong>' + formatMetric(rowTotal) + '</strong></td><td><button type="button" class="btn btn-ghost btn-small ig-refresh-one" data-id="' + esc(post.id) + '"' + (post.lookup_status === "loading" || report.loading ? ' disabled' : '') + '>↻</button><button type="button" class="btn btn-ghost btn-small ig-delete-post" data-id="' + esc(post.id) + '">Hapus</button></td></tr>';
   }).join("");
-  const loadingText = report.loading
-    ? '<div class="ig-loading"><span class="spinner"></span> Membaca postingan publik Instagram…</div>' : "";
   const errorText = report.error
-    ? '<div class="ig-setup-notice"><strong>Data Instagram belum berhasil dimuat.</strong><p>' + esc(report.error) + '</p><p>Pencarian username memakai data publik tanpa Meta access token. Instagram bisa membatasi permintaan atau meminta login. Share dan repost tidak dijamin tersedia secara publik.</p></div>' : "";
-  const accountLabel = report.account && report.account.username
-    ? '@' + report.account.username
-    : report.username ? '@' + report.username : "Masukkan username Instagram";
-  const postsSummary = posts.length
-    ? posts.length + ' postingan publik berhasil dibaca' + (summary.total_available_posts ? ' · total postingan pada profil: ' + formatMetric(summary.total_available_posts) : '')
-    : "Masukkan username publik untuk membaca metrik yang tersedia.";
-  return '<div class="page-heading"><div><h2>Instagram Engagement Report</h2><p>Masukkan username untuk melihat engagement publik per postingan.</p></div></div>' +
-    '<form class="ig-lookup-form" id="instagram-lookup-form"><label for="instagram-username">Username Instagram<input id="instagram-username" name="username" type="text" inputmode="text" autocomplete="off" autocapitalize="none" spellcheck="false" maxlength="30" placeholder="@contohbisnis" value="' + esc(report.username || '') + '" required></label><button class="btn btn-primary" type="submit"' + (report.loading ? ' disabled' : '') + '>' + (report.loading ? 'Mencari…' : 'Lihat engagement') + '</button></form>' +
-    '<div class="ig-account-strip"><div><span class="ig-strip-label">Akun Instagram</span><strong>' + esc(accountLabel) + '</strong><small>Update terakhir: ' + esc(updated) + '</small></div><span class="role-badge">' + (report.loading ? 'Memuat data' : report.error ? 'Tidak tersedia' : report.lastFetched ? 'Data dimuat' : 'Menunggu username') + '</span></div>' +
-    loadingText + errorText +
-    '<div class="ig-metric-grid">' +
-      instagramMetricCard("Total likes", summary.likes_available ? summary.likes : null, "Akumulasi angka tersedia dari post yang ditarik") +
-      instagramMetricCard("Total komentar", summary.comments_available ? summary.comments : null, "Akumulasi angka tersedia dari post yang ditarik") +
-      instagramMetricCard("Total share", summary.shares_available ? summary.shares : null, "Angka yang disediakan Meta") +
-      instagramMetricCard("Total repost", summary.reposts_available ? summary.reposts : null, "Angka yang disediakan Meta") +
+    ? '<div class="ig-setup-notice"><strong>Catatan pembacaan otomatis</strong><p>' + esc(report.error) + '</p></div>' : "";
+  const totalEngagement = posts.map(instagramKnownTotal).filter((value) => value !== null).reduce((sum, value) => sum + value, 0);
+  const updated = report.lastFetched ? fmtDateTime(report.lastFetched) : "Belum ada sinkronisasi";
+  return '<div class="page-heading"><div><h2>Instagram Engagement Report</h2><p>Masukkan link postingan; metrik yang tersedia akan dibaca otomatis dan total engagement dihitung per post serta keseluruhan.</p></div><div class="heading-actions"><button class="btn btn-secondary" type="button" data-instagram-refresh-all' + (report.loading || !posts.length ? ' disabled' : '') + '>' + (report.loading ? 'Memperbarui…' : '↻ Perbarui semua') + '</button></div></div>' +
+    '<form class="ig-lookup-form" id="instagram-post-form"><label for="instagram-post-url">Link postingan Instagram<input id="instagram-post-url" name="post_url" type="url" inputmode="url" autocomplete="url" spellcheck="false" placeholder="https://www.instagram.com/p/..." required></label><button class="btn btn-primary" type="submit"' + (report.loading || posts.length >= 30 ? ' disabled' : '') + '>' + (report.loading ? 'Memproses…' : 'Tambah & baca engagement') + '</button></form>' +
+    errorText +
+    '<div class="ig-account-strip"><div><span class="ig-strip-label">Daftar postingan</span><strong>' + formatMetric(posts.length) + ' link tersimpan</strong><small>Update terakhir: ' + esc(updated) + ' · tersimpan di browser ini</small></div><span class="role-badge">' + (report.loading ? 'Sedang membaca' : posts.length ? 'Report per post' : 'Belum ada post') + '</span></div>' +
+    '<div class="ig-metric-grid ig-metric-grid-five">' +
+      instagramMetricCard("Total likes", instagramSum("likes"), "Jumlah dari semua baris yang terisi") +
+      instagramMetricCard("Total komentar", instagramSum("comments"), "Jumlah dari semua baris yang terisi") +
+      instagramMetricCard("Total share", instagramSum("shares"), "Auto jika tersedia, atau input manual") +
+      instagramMetricCard("Total repost", instagramSum("reposts"), "Auto jika tersedia, atau input manual") +
+      instagramMetricCard("Total engagement", posts.length ? totalEngagement : null, "Like + komentar + share + repost") +
     '</div>' +
-    '<section class="panel ig-posts-panel"><div class="panel-header"><div><h3>Engagement per postingan</h3><p>' + esc(postsSummary) + '</p></div><span class="role-badge">' + formatMetric(posts.length) + ' post</span></div>' +
-    (posts.length ? '<div class="ig-report-table-wrap"><table class="ig-report-table"><thead><tr><th>Postingan</th><th>Like</th><th>Komentar</th><th>Share</th><th>Repost</th><th>Interaksi terukur</th></tr></thead><tbody>' + postRows + '</tbody></table></div><p class="ig-report-footnote">Like dan komentar yang terlihat bersumber dari profil publik. Share dan repost umumnya tidak dibuka sebagai angka publik untuk username sembarang, sehingga ditampilkan — jika tidak tersedia.</p>' : (!report.loading && !report.error ? '<div class="ig-empty"><strong>Masukkan username untuk mulai.</strong><p>Gunakan username akun publik, tanpa perlu memasukkan password Instagram.</p></div>' : '')) +
-    '</section><p class="ig-report-footnote">Akses data publik bisa dibatasi Instagram sewaktu-waktu. Panel tidak meminta password, kode OTP, atau cookie Instagram.</p>';
+    '<section class="panel ig-posts-panel"><div class="panel-header"><div><h3>Tabel engagement per postingan</h3><p>' + (posts.length ? 'Kamu bisa mengedit kolom angka. Total dan ringkasan akan dihitung ulang otomatis.' : 'Tambahkan link pertama untuk mulai membuat report.') + '</p></div><span class="role-badge">' + formatMetric(posts.length) + ' post</span></div>' +
+    (posts.length ? '<div class="ig-report-table-wrap"><table class="ig-report-table ig-editable-table"><thead><tr><th>Postingan</th><th>Like</th><th>Komentar</th><th>Share</th><th>Repost</th><th>Total engagement</th><th>Aksi</th></tr></thead><tbody>' + tableRows + '</tbody></table></div><p class="ig-report-footnote">Tanda — berarti angka belum tersedia. Share/repost dapat tidak diberikan oleh Instagram publik; masukkan sendiri di kolomnya bila kamu memiliki angkanya. Total engagement menjumlahkan nilai yang terisi.</p>' :
+    '<div class="ig-empty"><strong>Belum ada link postingan.</strong><p>Tempel link Instagram di atas, lalu tekan Tambah & baca engagement.</p></div>') +
+    '</section><p class="ig-report-footnote">Maksimal 30 postingan per browser. Link dan angka yang diinput disimpan di browser ini, tidak otomatis tersinkron antarperangkat atau pengguna tim.</p>';
 }
-
-
-async function loadInstagramReport(force = false, usernameOverride = "") {
-  if (!supabase || !state.user || state.instagramReport.loading) return;
+function createInstagramPostId() {
+  return "ig-" + (crypto.randomUUID ? crypto.randomUUID() : Date.now() + "-" + Math.random().toString(36).slice(2, 9));
+}
+async function requestInstagramPostMetrics(postUrl) {
+  const { data, error } = await supabase.functions.invoke("instagram-engagement-report", { body: { post_url: postUrl } });
+  if (error) {
+    let message = error.message || "Backend pembacaan Instagram belum bisa dihubungi.";
+    try {
+      if (error.context && typeof error.context.clone === "function") {
+        const details = await error.context.clone().json();
+        if (details && details.error) message = details.error;
+      }
+    } catch { /* keep transport error */ }
+    if (/404|not found|failed to send a request/i.test(message)) {
+      message = "Pembacaan otomatis belum aktif di server. Baris tetap bisa dipakai dan kolom angka bisa diisi manual.";
+    }
+    throw new Error(message);
+  }
+  if (!data || data.error) throw new Error(data?.error || "Instagram tidak mengembalikan metrik.");
+  return data.post || data;
+}
+async function readInstagramPostMetrics(postId) {
   const report = state.instagramReport;
-  const rawUsername = String(usernameOverride || $("#instagram-username")?.value || report.username || "").trim();
-  const username = rawUsername.replace(/^@+/, "").replace(/\/+$/, "");
-  if (!username) {
-    report.error = "";
-    report.loading = false;
-    if (state.view === "instagram") $("#page-content").innerHTML = renderInstagramReport();
-    return;
-  }
-  if (!/^[A-Za-z0-9._]{1,30}$/.test(username)) {
-    report.error = "Username tidak valid. Masukkan username Instagram saja, tanpa URL atau spasi.";
-    report.loading = false;
-    if (state.view === "instagram") $("#page-content").innerHTML = renderInstagramReport();
-    return;
-  }
-  if (!force && report.username === username && report.lastAttemptAt && Date.now() - report.lastAttemptAt < 5 * 60 * 1000) return;
-  if (report.username !== username) {
-    report.posts = [];
-    report.summary = null;
-    report.account = null;
-    report.lastFetched = null;
-  }
-  report.username = username;
-  try { localStorage.setItem("ruang-kerja-instagram-username", username); } catch { /* storage may be disabled */ }
-  report.loading = true;
-  report.error = "";
-  report.lastAttemptAt = Date.now();
+  const post = report.posts.find((item) => item.id === postId);
+  if (!post || post.lookup_status === "loading") return;
+  post.lookup_status = "loading";
+  post.lookup_error = "";
+  post.last_attempt_at = Date.now();
+  saveInstagramPosts();
   if (state.view === "instagram") $("#page-content").innerHTML = renderInstagramReport();
   try {
-    const { data, error } = await supabase.functions.invoke("instagram-engagement-report", { body: { username } });
-    if (error) {
-      let message = error.message || "Edge Function belum bisa dihubungi.";
-      try {
-        if (error.context && typeof error.context.json === "function") {
-          const details = await error.context.clone().json();
-          if (details && details.error) message = details.error;
-        }
-      } catch { /* fallback to the function transport message */ }
-      if (/404|not found|failed to send a request/i.test(message)) {
-        message = "Endpoint pencarian username belum aktif. Backend harus dideploy satu kali agar website bisa mengambil data publik Instagram.";
+    if (!supabase || !state.user) throw new Error("Masuk ke Ruang Kerja terlebih dahulu.");
+    const result = await requestInstagramPostMetrics(post.url);
+    const current = report.posts.find((item) => item.id === postId);
+    if (!current) return;
+    for (const field of ["likes", "comments", "shares", "reposts"]) {
+      const value = result[field];
+      if (value !== null && value !== undefined && value !== "" && Number.isFinite(Number(value)) && Number(value) >= 0) {
+        current[field] = Number(value);
       }
-      throw new Error(message);
     }
-    if (!data || data.error) throw new Error(data?.error || "Instagram API tidak mengembalikan data.");
-    report.posts = Array.isArray(data.posts) ? data.posts : [];
-    report.summary = data.summary || null;
-    report.account = data.account || null;
-    report.lastFetched = data.fetched_at || new Date().toISOString();
+    current.caption = String(result.caption || current.caption || "Post Instagram");
+    current.timestamp = result.timestamp || current.timestamp || null;
+    current.lookup_status = "ready";
+    current.lookup_error = result.note || "";
+    current.fetched_at = result.fetched_at || new Date().toISOString();
+    report.lastFetched = current.fetched_at;
     report.error = "";
   } catch (error) {
-    report.error = error.message || "Gagal mengambil data Instagram.";
+    const current = report.posts.find((item) => item.id === postId);
+    if (current) {
+      current.lookup_status = "error";
+      current.lookup_error = (error.message || "Pembacaan otomatis gagal.") + " Angka tetap bisa diedit manual.";
+    }
   } finally {
-    report.loading = false;
+    saveInstagramPosts();
     if (state.view === "instagram") $("#page-content").innerHTML = renderInstagramReport();
   }
+}
+async function addInstagramPost(postUrl) {
+  const report = state.instagramReport;
+  let parsed;
+  try { parsed = parseInstagramPostUrl(postUrl); }
+  catch (error) { toast(error.message, "error"); return; }
+  const existing = report.posts.find((post) => post.shortcode === parsed.shortcode);
+  if (existing) {
+    toast("Link ini sudah ada di tabel. Mencoba memperbarui metrik.", "success");
+    await refreshInstagramPosts([existing.id]);
+    return;
+  }
+  if (report.posts.length >= 30) return toast("Batas 30 postingan per browser sudah tercapai.", "error");
+  const post = {
+    id: createInstagramPostId(),
+    url: parsed.url,
+    shortcode: parsed.shortcode,
+    caption: "Post Instagram",
+    timestamp: null,
+    likes: null, comments: null, shares: null, reposts: null,
+    lookup_status: "saved",
+    lookup_error: "",
+    last_attempt_at: 0,
+    fetched_at: null
+  };
+  report.posts.unshift(post);
+  saveInstagramPosts();
+  if (state.view === "instagram") $("#page-content").innerHTML = renderInstagramReport();
+  await refreshInstagramPosts([post.id]);
+}
+async function refreshInstagramPosts(postIds = null) {
+  const report = state.instagramReport;
+  if (report.loading) return;
+  const ids = Array.isArray(postIds) ? postIds : report.posts.map((post) => post.id);
+  if (!ids.length) return;
+  report.loading = true;
+  report.error = "";
+  if (state.view === "instagram") $("#page-content").innerHTML = renderInstagramReport();
+  try {
+    for (const id of ids) {
+      const post = report.posts.find((item) => item.id === id);
+      if (post && post.lookup_status !== "loading") await readInstagramPostMetrics(id);
+    }
+  } finally {
+    report.loading = false;
+    report.lastFetched = new Date().toISOString();
+    if (state.view === "instagram") $("#page-content").innerHTML = renderInstagramReport();
+  }
+}
+function maybeRefreshInstagramPosts() {
+  const report = state.instagramReport;
+  if (state.view !== "instagram" || report.loading || !report.posts.length) return;
+  const stale = report.posts.filter((post) =>
+    post.lookup_status !== "loading" && (!post.last_attempt_at || Date.now() - post.last_attempt_at > 30 * 60 * 1000)
+  );
+  if (stale.length) void refreshInstagramPosts(stale.map((post) => post.id));
 }
 
 function renderPage() {
@@ -446,10 +549,7 @@ function renderPage() {
   else if (state.view === "visits") $("#page-content").innerHTML = renderVisits();
   else $("#page-content").innerHTML = renderActivity();
   initializeFilePickers($("#page-content"));
-  if (state.view === "instagram" && state.instagramReport.username && !state.instagramReport.loading &&
-      (!state.instagramReport.lastAttemptAt || Date.now() - state.instagramReport.lastAttemptAt > 5 * 60 * 1000)) {
-    void loadInstagramReport();
-  }
+  if (state.view === "instagram") maybeRefreshInstagramPosts();
 }
 
 function attachmentTypeLabel(type) {
@@ -549,7 +649,6 @@ async function enterApp(user) {
 }
 function changeView(view) {
   if (!PAGE_TITLE[view]) return;
-  if (view === "instagram") state.instagramReport.lastAttemptAt = 0;
   state.view = view;
   $("#sidebar").classList.remove("mobile-open");
   renderPage();
@@ -1573,7 +1672,16 @@ $("#login-form").addEventListener("submit", async (event) => {
 document.addEventListener("click", async (event) => {
   const nav = event.target.closest("[data-view]");
   if (nav) { changeView(nav.dataset.view); return; }
-  if (event.target.closest("[data-instagram-refresh]")) { await loadInstagramReport(true, $("#instagram-username")?.value || ""); return; }
+  if (event.target.closest("[data-instagram-refresh-all]")) { await refreshInstagramPosts(); return; }
+  const refreshInstagramOne = event.target.closest(".ig-refresh-one");
+  if (refreshInstagramOne) { await refreshInstagramPosts([refreshInstagramOne.dataset.id]); return; }
+  const deleteInstagramPost = event.target.closest(".ig-delete-post");
+  if (deleteInstagramPost) {
+    state.instagramReport.posts = state.instagramReport.posts.filter((post) => post.id !== deleteInstagramPost.dataset.id);
+    saveInstagramPosts();
+    renderPage();
+    return;
+  }
   if (event.target.closest("#test-telegram-button")) { toast("Mengirim tes notifikasi Telegram…", "success"); const sent = await notifyTelegram("task_status", "Tes notifikasi Telegram", "Tes koneksi", "Pesan percobaan dari portal Ruang Kerja."); if (sent) toast("Tes berhasil dikirim ke Telegram.", "success"); return; }
   if (event.target.closest("#new-task-top") || event.target.closest("[data-create-task]")) { openCreateModal(); return; }
   if (event.target.closest("[data-connect-google-drive]")) { await connectGoogleDrive(); return; }
@@ -1637,7 +1745,23 @@ document.addEventListener("click", async (event) => {
   if (event.target.closest(".close-modal")) { closeModal(); return; }
   if (event.target.matches("[data-backdrop]")) { closeModal(); }
 });
-document.addEventListener("input", (event) => { if (event.target.id === "task-search") applyTaskFilters(); });
+document.addEventListener("input", (event) => {
+  if (event.target.id === "task-search") applyTaskFilters();
+  else if (event.target.matches(".ig-metric-edit")) {
+    const post = state.instagramReport.posts.find((item) => item.id === event.target.dataset.postId);
+    if (!post) return;
+    const raw = String(event.target.value || "").trim();
+    post[event.target.dataset.field] = raw === "" ? null : (Number.isFinite(Number(raw)) && Number(raw) >= 0 ? Math.floor(Number(raw)) : null);
+    saveInstagramPosts();
+    const row = event.target.closest("tr");
+    const total = $(".ig-row-total strong", row);
+    if (total) total.textContent = formatMetric(instagramKnownTotal(post));
+    const cards = $(".ig-metric-card strong");
+    const fields = ["likes","comments","shares","reposts"];
+    fields.forEach((field,index) => { if (cards[index]) cards[index].textContent = formatMetric(instagramSum(field)); });
+    if (cards[4]) cards[4].textContent = formatMetric(state.instagramReport.posts.map(instagramKnownTotal).filter((value)=>value!==null).reduce((sum,value)=>sum+value,0));
+  }
+});
 document.addEventListener("change", async (event) => {
   if (event.target.matches("[data-visit-status]")) {
     await changeVisitStatus(event.target.dataset.visitStatus, event.target.value);
@@ -1646,9 +1770,11 @@ document.addEventListener("change", async (event) => {
   if (event.target.id === "task-status-filter" || event.target.id === "task-priority-filter") applyTaskFilters();
 });
 document.addEventListener("submit", async (event) => {
-  if (event.target.id === "instagram-lookup-form") {
+  if (event.target.id === "instagram-post-form") {
     event.preventDefault();
-    await loadInstagramReport(true, new FormData(event.target).get("username") || "");
+    const postUrl = new FormData(event.target).get("post_url") || "";
+    event.target.reset();
+    await addInstagramPost(postUrl);
   }
   else if (event.target.id === "create-task-form") { event.preventDefault(); await createTask(event.target); }
   else if (event.target.id === "revision-form") { event.preventDefault(); await sendRevision(event.target); }
