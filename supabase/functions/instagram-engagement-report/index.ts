@@ -69,6 +69,33 @@ Deno.serve(async (req: Request) => {
     }
     return null;
   };
+  const imageUrlFromItem = (item: Record<string, unknown>): string | null => {
+    const directKeys = ["display_url", "thumbnail_src", "display_uri", "image_url", "thumbnail_url", "preview_url"];
+    for (const key of directKeys) {
+      const value = item[key];
+      if (typeof value === "string" && /^https?:\/\//i.test(value)) return value;
+    }
+    const imageVersions = item.image_versions2 && typeof item.image_versions2 === "object"
+      ? item.image_versions2 as Record<string, unknown> : {};
+    const candidates = Array.isArray(imageVersions.candidates) ? imageVersions.candidates
+      .filter((candidate): candidate is Record<string, unknown> => Boolean(candidate && typeof candidate === "object" && typeof candidate.url === "string"))
+      .sort((a, b) => Number(b.width || 0) * Number(b.height || 0) - Number(a.width || 0) * Number(a.height || 0)) : [];
+    if (candidates.length) return String(candidates[0].url);
+    for (const key of ["display_resources", "thumbnail_resources"]) {
+      const resources = item[key];
+      if (Array.isArray(resources)) {
+        const valid = resources.filter((resource): resource is Record<string, unknown> =>
+          Boolean(resource && typeof resource === "object" && typeof (resource.src || resource.url) === "string"));
+        if (valid.length) return String((valid[valid.length - 1].src || valid[valid.length - 1].url));
+      }
+    }
+    const carousel = item.carousel_media;
+    if (Array.isArray(carousel)) {
+      const first = carousel.find((child) => child && typeof child === "object") as Record<string, unknown> | undefined;
+      if (first) return imageUrlFromItem(first);
+    }
+    return null;
+  };
   const count = (...values: unknown[]): number | null => {
     for (const value of values) {
       if (value === null || value === undefined || value === "") continue;
@@ -94,12 +121,16 @@ Deno.serve(async (req: Request) => {
 
   try {
     let item: Record<string, unknown> | null = null;
+    let coverImageUrl: string | null = null;
     let blocked = false;
     const detailUrl = new URL("https://www.instagram.com/api/v1/media/shortcode/");
     detailUrl.searchParams.set("shortcode", shortcode);
     try {
       const detailResponse = await safeFetch(detailUrl.toString());
-      if (detailResponse.ok) item = extractItem(await detailResponse.json() as Record<string, unknown>);
+      if (detailResponse.ok) {
+        item = extractItem(await detailResponse.json() as Record<string, unknown>);
+        if (item) coverImageUrl = imageUrlFromItem(item);
+      }
       else if ([401, 403, 429].includes(detailResponse.status)) blocked = true;
     } catch { /* fallback to post page */ }
 
@@ -111,6 +142,11 @@ Deno.serve(async (req: Request) => {
         const pageResponse = await safeFetch(pageUrl.toString());
         if (pageResponse.ok) {
           const text = await pageResponse.text();
+          const ogMeta = text.match(/<meta\b[^>]*(?:property|name)=["']og:image["'][^>]*>/i);
+          const ogContent = ogMeta ? ogMeta[0].match(/\bcontent=["']([^"']+)["']/i) : null;
+          if (ogContent && ogContent[1]) {
+            coverImageUrl = ogContent[1].replace(/&amp;/g, "&").replace(/&#x2F;/g, "/");
+          }
           const jsonStart = text.indexOf('{"graphql"');
           if (jsonStart >= 0) {
             const jsonEnd = text.indexOf("</script>", jsonStart);
@@ -141,6 +177,7 @@ Deno.serve(async (req: Request) => {
       }, blocked ? 429 : 502);
     }
 
+    coverImageUrl = imageUrlFromItem(item) || coverImageUrl;
     const captionField = item.caption && typeof item.caption === "object" ? item.caption as Record<string, unknown> : {};
     const captionEdges = item.edge_media_to_caption && typeof item.edge_media_to_caption === "object"
       ? (item.edge_media_to_caption as Record<string, unknown>).edges : null;
@@ -168,6 +205,7 @@ Deno.serve(async (req: Request) => {
         shortcode,
         url: canonicalUrl,
         caption: captionText,
+        image_url: coverImageUrl,
         timestamp: unix === null ? null : new Date(unix > 100000000000 ? unix : unix * 1000).toISOString(),
         likes, comments, shares, reposts,
         fetched_at: new Date().toISOString(),
