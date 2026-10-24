@@ -397,7 +397,7 @@ function renderInstagramReport() {
       '</span></div>';
     const metricInput = (field, label) => '<input class="ig-metric-edit" data-post-id="' + esc(post.id) + '" data-field="' + field + '" type="number" min="0" step="1" inputmode="numeric" aria-label="' + label + '" value="' + (post[field] === null || post[field] === undefined ? "" : esc(post[field])) + '" placeholder="—">';
     return '<tr data-instagram-post-row="' + esc(post.id) + '"><td class="ig-cover-cell">' + coverMarkup + '</td><td><div class="ig-post-title">' +
-      esc((post.caption || "Post Instagram").slice(0, 160)) + '</div><div class="ig-post-meta"><a href="' + esc(post.url) + '" target="_blank" rel="noopener noreferrer">Buka postingan ↗</a>' +
+      esc((post.caption || "Post Instagram").slice(0, 160)) + '</div><div class="ig-post-meta">Dibaca dari metadata web publik' +
       (post.timestamp ? ' · ' + esc(fmtDateTime(post.timestamp)) : '') +
       '</div><div class="ig-row-status ' + (post.lookup_status === "error" ? "is-error" : post.lookup_status === "loading" ? "is-loading" : post.lookup_status === "partial" ? "is-partial" : "") + '">' + esc(status) + '</div>' +
       (post.lookup_error ? '<p class="ig-row-error">' + esc(post.lookup_error) + '</p>' : '') +
