@@ -900,3 +900,29 @@ select,
   .ig-metric-grid-five { grid-template-columns:repeat(2,minmax(0,1fr)); }
   .ig-metric-edit { width:72px; }
 }
+
+
+/* Instagram post cover thumbnails inside the engagement table */
+.ig-editable-table { min-width:1080px; }
+.ig-cover-cell { width:94px; min-width:94px; }
+.ig-cover-link { display:block; width:76px; text-decoration:none; }
+.ig-cover-frame {
+  position:relative; display:block; width:76px; height:92px; overflow:hidden;
+  border:1px solid #dfe6f0; border-radius:9px;
+  background:linear-gradient(145deg,#f3f6fb,#e8edf5);
+}
+.ig-cover-fallback {
+  position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+  color:#71819a; font-size:13px; font-weight:850; letter-spacing:.08em;
+  background:linear-gradient(145deg,#f7f9fc,#e8eef7);
+}
+.ig-cover-image {
+  position:relative; z-index:1; display:block; width:100%; height:100%;
+  object-fit:cover; object-position:center; transition:transform .18s ease;
+}
+.ig-cover-link:hover .ig-cover-image { transform:scale(1.04); }
+@media(max-width:640px) {
+  .ig-cover-cell { width:78px; min-width:78px; }
+  .ig-cover-link, .ig-cover-frame { width:62px; }
+  .ig-cover-frame { height:78px; }
+}
