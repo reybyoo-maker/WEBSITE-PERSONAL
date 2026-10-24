@@ -387,14 +387,14 @@ function renderInstagramReport() {
   const tableRows = posts.map((post) => {
     const status = post.lookup_status === "loading" ? "Membaca metrik…"
       : post.lookup_status === "error" ? "Auto-read belum berhasil"
-      : post.lookup_status === "partial" ? "Cover terbaca; metrik terbatas"
+      : post.lookup_status === "partial" ? "Instagram tidak membuka metrik"
       : post.fetched_at ? "Diperbarui " + fmtDateTime(post.fetched_at)
       : "Data bisa diedit";
     const rowTotal = instagramKnownTotal(post);
-    const coverMarkup = '<a class="ig-cover-link" href="' + esc(post.url) + '" target="_blank" rel="noopener noreferrer" aria-label="Buka postingan Instagram">' +
-      '<span class="ig-cover-frame"><span class="ig-cover-fallback" aria-hidden="true">IG</span>' +
+    const coverMarkup = '<button type="button" class="ig-cover-link ig-post-preview" data-id="' + esc(post.id) + '" title="Lihat pratinjau postingan" aria-label="Lihat pratinjau postingan Instagram">' +
+      '<span class="ig-cover-frame"><span class="ig-cover-fallback" aria-hidden="true">' + (post.image_url ? 'IG' : 'Lihat post') + '</span>' +
       (post.image_url ? '<img class="ig-cover-image" src="' + esc(post.image_url) + '" alt="Cover postingan Instagram" loading="lazy" referrerpolicy="no-referrer">' : '') +
-      '</span></a>';
+      '</span></button>';
     const metricInput = (field, label) => '<input class="ig-metric-edit" data-post-id="' + esc(post.id) + '" data-field="' + field + '" type="number" min="0" step="1" inputmode="numeric" aria-label="' + label + '" value="' + (post[field] === null || post[field] === undefined ? "" : esc(post[field])) + '" placeholder="—">';
     return '<tr data-instagram-post-row="' + esc(post.id) + '"><td class="ig-cover-cell">' + coverMarkup + '</td><td><div class="ig-post-title">' +
       esc((post.caption || "Post Instagram").slice(0, 160)) + '</div><div class="ig-post-meta"><a href="' + esc(post.url) + '" target="_blank" rel="noopener noreferrer">Buka postingan ↗</a>' +
@@ -424,6 +424,38 @@ function renderInstagramReport() {
     (posts.length ? '<div class="ig-report-table-wrap"><table class="ig-report-table ig-editable-table"><thead><tr><th>Cover</th><th>Postingan</th><th>Like</th><th>Komentar</th><th>Share</th><th>Repost</th><th>Total engagement</th><th>Aksi</th></tr></thead><tbody>' + tableRows + '</tbody></table></div><p class="ig-report-footnote">Tanda — berarti angka belum tersedia. Share/repost dapat tidak diberikan oleh Instagram publik; masukkan sendiri di kolomnya bila kamu memiliki angkanya. Total engagement menjumlahkan nilai yang terisi.</p>' :
     '<div class="ig-empty"><strong>Belum ada link postingan.</strong><p>Tempel link Instagram di atas, lalu tekan Tambah & baca engagement.</p></div>') +
     '</section><p class="ig-report-footnote">Maksimal 30 postingan per browser. Link dan angka yang diinput disimpan di browser ini, tidak otomatis tersinkron antarperangkat atau pengguna tim.</p>';
+}
+function openInstagramPostPreview(postId) {
+  const post = state.instagramReport.posts.find((item) => item.id === postId);
+  if (!post) return;
+  const permalink = esc(post.url);
+  $("#modal-root").innerHTML =
+    '<div class="modal-backdrop" data-backdrop><section class="modal-card ig-post-preview-modal" role="dialog" aria-modal="true" aria-labelledby="ig-post-preview-title">' +
+      '<div class="modal-header"><div><h2 id="ig-post-preview-title">Pratinjau postingan Instagram</h2><p>Pratinjau menggunakan embed Instagram; data metrik belum tentu tersedia secara publik.</p></div>' +
+      '<button class="icon-button close-modal" type="button" aria-label="Tutup">×</button></div>' +
+      '<div class="ig-post-preview-body"><div class="ig-post-preview-embed">' +
+      '<blockquote class="instagram-media" data-instgrm-permalink="' + permalink + '" data-instgrm-version="14" style="background:#fff;border:0;border-radius:3px;box-shadow:0 0 1px 0 rgba(0,0,0,0.5),0 1px 10px 0 rgba(0,0,0,0.15);margin:0 auto;max-width:540px;min-width:280px;padding:0;width:calc(100% - 2px);">' +
+      '<a href="' + permalink + '" target="_blank" rel="noopener noreferrer">Lihat postingan di Instagram</a></blockquote>' +
+      '</div><p class="ig-post-preview-link"><a href="' + permalink + '" target="_blank" rel="noopener noreferrer">Buka postingan langsung di Instagram ↗</a></p></div>' +
+    '</section></div>';
+  const processEmbed = () => {
+    try { window.instgrm?.Embeds?.process?.(); } catch { /* preview remains linked to Instagram */ }
+  };
+  if (window.instgrm?.Embeds?.process) {
+    processEmbed();
+    return;
+  }
+  let script = document.querySelector("script[data-instagram-embed-script]");
+  if (!script) {
+    script = document.createElement("script");
+    script.src = "https://www.instagram.com/embed.js";
+    script.async = true;
+    script.dataset.instagramEmbedScript = "true";
+    script.addEventListener("load", processEmbed, { once: true });
+    document.body.appendChild(script);
+  } else {
+    script.addEventListener("load", processEmbed, { once: true });
+  }
 }
 function createInstagramPostId() {
   return "ig-" + (crypto.randomUUID ? crypto.randomUUID() : Date.now() + "-" + Math.random().toString(36).slice(2, 9));
@@ -471,8 +503,8 @@ async function readInstagramPostMetrics(postId) {
     current.caption = String(result.caption || current.caption || "Post Instagram");
     current.image_url = String(result.image_url || result.thumbnail_url || current.image_url || "");
     current.timestamp = result.timestamp || current.timestamp || null;
-    current.lookup_status = metricReturned ? "ready" : current.image_url ? "partial" : "error";
-    current.lookup_error = result.note || (metricReturned ? "" : "Instagram belum memberikan angka engagement; kolom tetap bisa diisi manual.");
+    current.lookup_status = metricReturned ? "ready" : "partial";
+    current.lookup_error = result.note || (metricReturned ? "" : "Instagram belum memberikan angka engagement. Klik cover untuk mencoba melihat postingannya.");
     current.fetched_at = result.fetched_at || new Date().toISOString();
     report.lastFetched = current.fetched_at;
     report.error = "";
@@ -1682,6 +1714,8 @@ document.addEventListener("click", async (event) => {
   const nav = event.target.closest("[data-view]");
   if (nav) { changeView(nav.dataset.view); return; }
   if (event.target.closest("[data-instagram-refresh-all]")) { await refreshInstagramPosts(); return; }
+  const instagramPreview = event.target.closest(".ig-post-preview");
+  if (instagramPreview) { openInstagramPostPreview(instagramPreview.dataset.id); return; }
   const refreshInstagramOne = event.target.closest(".ig-refresh-one");
   if (refreshInstagramOne) { await refreshInstagramPosts([refreshInstagramOne.dataset.id]); return; }
   const deleteInstagramPost = event.target.closest(".ig-delete-post");
