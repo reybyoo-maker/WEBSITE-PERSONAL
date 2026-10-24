@@ -200,8 +200,8 @@ Deno.serve(async (req: Request) => {
           const text = await pageResponse.text();
           coverImageUrl = readMeta(text, "og:image") || coverImageUrl;
           const description = readMeta(text, "og:description") || readMeta(text, "description");
-          metaLikes = metricFromDescription(description, "likes?");
-          metaComments = metricFromDescription(description, "comments?");
+          metaLikes = metricFromDescription(description, "likes?") ?? metaLikes;
+          metaComments = metricFromDescription(description, "comments?") ?? metaComments;
 
           // Instagram has served several embedded JSON shapes over time.
           const sharedDataAt = text.indexOf("window._sharedData");
@@ -247,6 +247,13 @@ Deno.serve(async (req: Request) => {
       }
     }
     if (!item) {
+      console.warn("Instagram public metrics partially or not available", {
+        shortcode,
+        accessLimited: blocked,
+        hasCover: Boolean(coverImageUrl),
+        hasLikes: metaLikes !== null,
+        hasComments: metaComments !== null,
+      });
       const note = blocked
         ? "Instagram membatasi akses publik. Cover atau sebagian angka mungkin tersedia, tetapi metrik lengkap tidak dapat dibaca."
         : (coverImageUrl || metaLikes !== null || metaComments !== null)
