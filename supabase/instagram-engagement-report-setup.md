@@ -1,14 +1,14 @@
-# Instagram Engagement Report — post-link lookup
+# Instagram Engagement Report — public web lookup
 
-This Edge Function accepts a public Instagram post URL and tries, in order, to:
-- read the media response from Instagram's public web endpoint;
-- inspect the normal post page and legacy JSON-style page;
-- extract the thumbnail and any like/comment counts included in public metadata;
-- return a partial result with a clear note rather than failing the entire table when Instagram does not expose metrics.
+The Edge Function accepts a public Instagram post URL and inspects only HTML pages that are publicly accessible without signing in:
+- the normal public post webpage;
+- the publicly accessible embedded post webpage.
+
+It extracts the cover image, like/comment counts, caption, and timestamp only when those values exist in the returned public-page metadata. It does not call Instagram's internal media API or use an Instagram login/session. If public metadata omits a field, that field remains blank rather than being guessed.
 
 ## Deploy updated function
 
-The website GitHub Pages deployment does not deploy Supabase Edge Functions. Deploy this function separately whenever this file's implementation changes.
+The website GitHub Pages deployment does not deploy Supabase Edge Functions. Deploy this function separately whenever its implementation changes.
 
 1. Open the [Supabase Edge Function dashboard](https://supabase.com/dashboard/project/edgzffkhjtzejxjbtqib/functions).
 2. Select `instagram-engagement-report`.
@@ -18,8 +18,8 @@ The website GitHub Pages deployment does not deploy Supabase Edge Functions. Dep
 
 ## Important limitations
 
-- No Meta access token is needed for this public-page fallback, but it uses undocumented Instagram web endpoints and is not guaranteed to work consistently.
-- Instagram may block anonymous requests or omit likes/comments; shares and reposts often are not exposed in public HTML. A cover or partial metrics may be returned without all counts.
+- Public-page parsing depends on what the webpage returns at lookup time; Instagram can block anonymous page requests or omit engagement counts.
+- Likes, comments, and cover images may be available if present in page metadata. Public webpages generally do not expose reliable share and repost totals, so those fields can remain blank and should not be guessed.
 - For reliable, authorized Insights data, use the official Instagram Graph API for eligible professional accounts and media the connected account is permitted to access.
 - The dashboard currently stores its table in that browser's local storage; rows do not synchronize across devices.
 - Never put a Supabase service-role key in the browser.
