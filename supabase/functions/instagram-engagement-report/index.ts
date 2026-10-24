@@ -116,9 +116,59 @@ Deno.serve(async (req: Request) => {
   };
   const escapeText = (value: string) => value
     .replace(/&amp;/g, "&").replace(/&#x27;|&#39;/g, "'").replace(/&quot;/g, '"')
-    .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/\\u0026/g, "&")
-    .replace(/\\u003c/g, "<").replace(/\\u003e/g, ">").replace(/\\\\n/g, " ");
+    .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&#x2F;|&#47;/g, "/")
+    .replace(/\\u0026/g, "&").replace(/\\u003c/g, "<").replace(/\\u003e/g, ">").replace(/\\\\n/g, " ");
 
+  const readMeta = (html: string, key: string): string => {
+    const tagPattern = new RegExp("<meta\\b(?=[^>]*(?:property|name)=[\\"']" + key + "[\\"'])[^>]*>", "i");
+    const tag = html.match(tagPattern)?.[0];
+    if (!tag) return "";
+    const content = tag.match(/\bcontent=["']([^"']*)["']/i);
+    return content ? escapeText(content[1]) : "";
+  };
+
+  const parseEmbeddedObjectAt = (source: string, searchAt: number): Record<string, unknown> | null => {
+    if (searchAt < 0) return null;
+    const start = source.indexOf("{", searchAt);
+    if (start < 0) return null;
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    for (let i = start; i < source.length; i++) {
+      const ch = source[i];
+      if (inString) {
+        if (escaped) escaped = false;
+        else if (ch === "\\") escaped = true;
+        else if (ch === '"') inString = false;
+        continue;
+      }
+      if (ch === '"') inString = true;
+      else if (ch === "{") depth++;
+      else if (ch === "}") {
+        depth--;
+        if (depth === 0) {
+          try { return JSON.parse(source.slice(start, i + 1)) as Record<string, unknown>; }
+          catch { return null; }
+        }
+      }
+    }
+    return null;
+  };
+
+  const metricFromDescription = (description: string, label: string): number | null => {
+    if (!description) return null;
+    const match = description.match(new RegExp("([\\d,.]+\\s*[KMB]?)\\s+" + label + "\\b", "i"));
+    if (!match) return null;
+    const token = match[1].replace(/[\s,]/g, "");
+    const suffix = token.slice(-1).toUpperCase();
+    const base = Number.parseFloat(/[KMB]$/i.test(token) ? token.slice(0, -1) : token);
+    if (!Number.isFinite(base) || base < 0) return null;
+    const multiplier = suffix === "K" ? 1000 : suffix === "M" ? 1000000 : suffix === "B" ? 1000000000 : 1;
+    return Math.floor(base * multiplier);
+  };
+
+  let metaLikes: number | null = null;
+  let metaComments: number | null = null;
   try {
     let item: Record<string, unknown> | null = null;
     let coverImageUrl: string | null = null;
@@ -135,46 +185,85 @@ Deno.serve(async (req: Request) => {
     } catch { /* fallback to post page */ }
 
     if (!item) {
-      const pageUrl = new URL(canonicalUrl);
-      pageUrl.searchParams.set("__a", "1");
-      pageUrl.searchParams.set("__d", "dis");
-      try {
-        const pageResponse = await safeFetch(pageUrl.toString());
-        if (pageResponse.ok) {
-          const text = await pageResponse.text();
-          const ogMeta = text.match(/<meta\b[^>]*(?:property|name)=["']og:image["'][^>]*>/i);
-          const ogContent = ogMeta ? ogMeta[0].match(/\bcontent=["']([^"']+)["']/i) : null;
-          if (ogContent && ogContent[1]) {
-            coverImageUrl = ogContent[1].replace(/&amp;/g, "&").replace(/&#x2F;/g, "/");
+      const queryUrl = new URL(canonicalUrl);
+      queryUrl.searchParams.set("__a", "1");
+      queryUrl.searchParams.set("__d", "dis");
+      // Try the normal public page first, then the legacy JSON-style endpoint.
+      for (const pageAddress of [canonicalUrl, queryUrl.toString()]) {
+        if (item) break;
+        try {
+          const pageResponse = await safeFetch(pageAddress);
+          if (!pageResponse.ok) {
+            if ([401, 403, 429].includes(pageResponse.status)) blocked = true;
+            continue;
           }
-          const jsonStart = text.indexOf('{"graphql"');
-          if (jsonStart >= 0) {
-            const jsonEnd = text.indexOf("</script>", jsonStart);
-            const candidate = text.slice(jsonStart, jsonEnd > jsonStart ? jsonEnd : undefined);
-            try { item = extractItem(JSON.parse(candidate) as Record<string, unknown>); } catch { /* try count extraction */ }
+          const text = await pageResponse.text();
+          coverImageUrl = readMeta(text, "og:image") || coverImageUrl;
+          const description = readMeta(text, "og:description") || readMeta(text, "description");
+          metaLikes = metricFromDescription(description, "likes?");
+          metaComments = metricFromDescription(description, "comments?");
+
+          // Instagram has served several embedded JSON shapes over time.
+          const sharedDataAt = text.indexOf("window._sharedData");
+          if (sharedDataAt >= 0) {
+            const sharedRoot = parseEmbeddedObjectAt(text, sharedDataAt);
+            if (sharedRoot) item = extractItem(sharedRoot);
+          }
+          if (!item) {
+            const graphAt = text.indexOf('{"graphql"');
+            if (graphAt >= 0) {
+              const graphRoot = parseEmbeddedObjectAt(text, graphAt);
+              if (graphRoot) item = extractItem(graphRoot);
+            }
+          }
+          if (!item) {
+            const mediaAt = text.indexOf('"shortcode_media"');
+            if (mediaAt >= 0) {
+              const mediaObject = parseEmbeddedObjectAt(text, mediaAt);
+              if (mediaObject) item = { shortcode_media: mediaObject };
+            }
           }
           if (!item) {
             const likesMatch = text.match(/"edge_media_preview_like"\s*:\s*\{\s*"count"\s*:\s*(\d+)/);
             const commentsMatch = text.match(/"edge_media_to_parent_comment"\s*:\s*\{\s*"count"\s*:\s*(\d+)/);
             const captionMatch = text.match(/"edge_media_to_caption"\s*:\s*\{\s*"edges"\s*:\s*\[\s*\{\s*"node"\s*:\s*\{\s*"text"\s*:\s*"((?:[^"\\\\]|\\\\.)*)"/);
-            if (likesMatch || commentsMatch || captionMatch) {
+            const regexLikes = likesMatch ? Number(likesMatch[1]) : null;
+            const regexComments = commentsMatch ? Number(commentsMatch[1]) : null;
+            if (regexLikes !== null || regexComments !== null || captionMatch) {
               item = {
-                like_count: likesMatch ? Number(likesMatch[1]) : null,
-                comment_count: commentsMatch ? Number(commentsMatch[1]) : null,
+                like_count: regexLikes,
+                comment_count: regexComments,
                 caption: { text: captionMatch ? escapeText(captionMatch[1]) : "" },
               };
             }
           }
-        } else if ([401, 403, 429].includes(pageResponse.status)) blocked = true;
-      } catch { /* return a useful error below */ }
+        } catch (error) {
+          console.warn("Instagram page parse attempt failed", {
+            shortcode,
+            endpoint: pageAddress === canonicalUrl ? "public_page" : "legacy_endpoint",
+            message: (error as Error)?.message || "unknown",
+          });
+        }
+      }
     }
     if (!item) {
+      const note = blocked
+        ? "Instagram membatasi akses publik. Cover atau sebagian angka mungkin tersedia, tetapi metrik lengkap tidak dapat dibaca."
+        : (coverImageUrl || metaLikes !== null || metaComments !== null)
+          ? "Data postingan hanya terbaca sebagian dari metadata publik. Share dan repost tidak tersedia dari respons ini."
+          : "Instagram tidak memberikan metadata postingan yang bisa dibaca. Coba postingan publik lain; angka tetap bisa diisi manual.";
       return json({
-        code: blocked ? "instagram_public_access_limited" : "instagram_post_not_readable",
-        error: blocked
-          ? "Instagram membatasi pembacaan otomatis untuk saat ini. Kolom tabel tetap bisa diisi manual dan total engagement tetap dihitung."
-          : "Metrik publik postingan tidak bisa dibaca saat ini. Cek link atau coba lagi; kolom tabel tetap bisa diisi manual.",
-      }, blocked ? 429 : 502);
+        ok: true,
+        source: "instagram_public_post",
+        post: {
+          id: shortcode, shortcode, url: canonicalUrl, caption: "",
+          image_url: coverImageUrl,
+          timestamp: null,
+          likes: metaLikes, comments: metaComments, shares: null, reposts: null,
+          fetched_at: new Date().toISOString(),
+          note,
+        },
+      });
     }
 
     coverImageUrl = imageUrlFromItem(item) || coverImageUrl;
@@ -186,17 +275,25 @@ Deno.serve(async (req: Request) => {
     const captionText = typeof item.caption === "string" ? item.caption
       : String(captionField.text || (firstCaptionNode && typeof firstCaptionNode === "object"
         ? (firstCaptionNode as Record<string, unknown>).text || "" : ""));
-    const likes = count(item.like_count, item.likes, nestedCount(item, ["edge_media_preview_like", "edge_liked_by", "edge_liked_and_viewed_by"]));
-    const comments = count(item.comment_count, item.comments_count, nestedCount(item, ["edge_media_to_comment", "edge_media_to_parent_comment", "edge_media_preview_comment"]));
+    const likes = count(item.like_count, item.likes, nestedCount(item, ["edge_media_preview_like", "edge_liked_by", "edge_liked_and_viewed_by"])) ?? metaLikes;
+    const comments = count(item.comment_count, item.comments_count, nestedCount(item, ["edge_media_to_comment", "edge_media_to_parent_comment", "edge_media_preview_comment"])) ?? metaComments;
     const shares = count(item.share_count, item.shares_count, item.send_count);
     const reposts = count(item.repost_count, item.reposts_count, item.reshare_count);
+    const unix = count(item.taken_at, item.taken_at_timestamp);
     if (likes === null && comments === null && shares === null && reposts === null) {
       return json({
-        code: "instagram_public_metrics_hidden",
-        error: "Link berhasil dibaca tetapi Instagram tidak membuka angka engagement untuk postingan ini. Kamu bisa isi angka pada tabel secara manual.",
-      }, 200);
+        ok: true,
+        source: "instagram_public_post",
+        post: {
+          id: String(item.pk || item.id || shortcode), shortcode, url: canonicalUrl,
+          caption: captionText, image_url: coverImageUrl,
+          timestamp: unix === null ? null : new Date(unix > 100000000000 ? unix : unix * 1000).toISOString(),
+          likes, comments, shares, reposts,
+          fetched_at: new Date().toISOString(),
+          note: "Link dikenali, tetapi Instagram tidak membuka angka engagement untuk postingan ini. Cover tetap ditampilkan bila tersedia; angka bisa diisi manual.",
+        },
+      });
     }
-    const unix = count(item.taken_at, item.taken_at_timestamp);
     return json({
       ok: true,
       source: "instagram_public_post",
