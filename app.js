@@ -742,8 +742,8 @@ async function downloadStoredFile(item, returnBlob = false) {
 async function uploadTaskFile(form) {
   const task = taskById(state.selectedTaskId);
   const workFiles = $$(".task-file-work-input", form).flatMap((input) => Array.from(input.files || [])).map((file) => ({ file, attachment_type: "work" }));
-  const exampleFiles = $(".task-file-example-input", form).flatMap((input) => Array.from(input.files || [])).map((file) => ({ file, attachment_type: "example" }));
-  const resultFiles = $(".task-file-result-input", form).flatMap((input) => Array.from(input.files || [])).map((file) => ({ file, attachment_type: "result" }));
+  const exampleFiles = $$(".task-file-example-input", form).flatMap((input) => Array.from(input.files || [])).map((file) => ({ file, attachment_type: "example" }));
+  const resultFiles = $$(".task-file-result-input", form).flatMap((input) => Array.from(input.files || [])).map((file) => ({ file, attachment_type: "result" }));
   const selected = [...workFiles, ...exampleFiles, ...resultFiles];
   if (!task || !selected.length) return toast("Pilih setidaknya satu file pada kategori Lampiran File, Contoh, atau Hasil Sudah Dikerjakan.", "error");
   const oversized = selected.find(({ file }) => file.size < 1 || file.size > MAX_STORAGE_FILE_SIZE);
